@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: proctoring_mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: proctoring_test
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
