@@ -1,0 +1,59 @@
+import { FormEvent } from "react";
+import { FilterField } from "../../entities/types";
+
+type Props = {
+  fields: FilterField[];
+  draft: Record<string, string>;
+  setDraft: (next: Record<string, string>) => void;
+  onSubmit: (event: FormEvent) => void;
+  onReset: () => void;
+};
+
+export function FilterPanel({ fields, draft, setDraft, onSubmit, onReset }: Props) {
+  const setValue = (key: string, value: string) => setDraft({ ...draft, [key]: value });
+
+  return (
+    <form className="bg-card rounded-xl border border-border p-4 space-y-4" onSubmit={onSubmit}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        {fields.map((field) => (
+          <div className="space-y-1.5 min-w-0" key={field.key}>
+            <label className="text-[12px] text-muted-foreground" style={{ fontWeight: 600 }}>
+              {field.label}
+            </label>
+            {field.type === "text" && <input className="w-full" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} placeholder="Поиск по подстроке" />}
+            {field.type === "select" && (
+              <select className="w-full" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)}>
+                <option value="">Все</option>
+                {field.options?.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            )}
+            {field.type === "dateRange" && (
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={draft[`${field.key}From`] ?? ""} onChange={(event) => setValue(`${field.key}From`, event.target.value)} aria-label={`${field.label} от`} />
+                <input type="date" value={draft[`${field.key}To`] ?? ""} onChange={(event) => setValue(`${field.key}To`, event.target.value)} aria-label={`${field.label} до`} />
+              </div>
+            )}
+            {field.type === "numberRange" && (
+              <div className="grid grid-cols-2 gap-2">
+                <input type="number" value={draft[`${field.key}Min`] ?? ""} onChange={(event) => setValue(`${field.key}Min`, event.target.value)} placeholder="От" />
+                <input type="number" value={draft[`${field.key}Max`] ?? ""} onChange={(event) => setValue(`${field.key}Max`, event.target.value)} placeholder="До" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <button className="button" type="submit">
+          Найти
+        </button>
+        <button className="button button_secondary" type="button" onClick={onReset}>
+          Сбросить
+        </button>
+        </div>
+    </form>
+  );
+}
