@@ -67,7 +67,7 @@ export function UploadsPage() {
             Загрузка данных экзамена
           </h1>
           <p className="text-muted-foreground text-[14px] mt-1">
-            Загружайте большие CSV-файлы: студенты, сессии, Moodle и OCR. Данные сохраняются в MongoDB и сразу доступны в интерфейсе.
+            Загружайте большие CSV-файлы: студенты, сессии, Moodle и OCR.
           </p>
         </div>
         <Link to="/upload-history">

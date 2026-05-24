@@ -88,10 +88,6 @@ export function ProcessingPage() {
               <span className="text-muted-foreground">Типы файлов</span>
               <span className="text-right">{batch?.fileTypes ?? "Нет данных"}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Источник статистики</span>
-              <span className="flex items-center gap-1.5" style={{ fontWeight: 500 }}><Database className="w-3.5 h-3.5" />MongoDB</span>
-            </div>
             {warningCount > 0 && (
               <div className="flex items-center gap-2 rounded-lg bg-warning/5 px-3 py-2 text-warning">
                 <AlertTriangle className="w-4 h-4" />
