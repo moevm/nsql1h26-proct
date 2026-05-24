@@ -19,5 +19,14 @@ services:
     ports:
       - "127.0.0.1:18080:8080"
 
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:5173:5173"
+
 volumes:
   db_data:
