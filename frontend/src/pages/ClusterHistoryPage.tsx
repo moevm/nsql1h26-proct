@@ -65,7 +65,7 @@ export function ClusterHistoryPage() {
           {hasFilters && <button onClick={resetFilters} className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><X className="w-3 h-3" />Сбросить</button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <TextInput placeholder="Поиск по ID или подмножеству" size="m" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+          <TextInput placeholder="Поиск по ID или подмножеству" size="l" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
           <Select value={[algoFilter]} onUpdate={(v) => setAlgoFilter(v[0])} options={[{ value: "all", content: "Все алгоритмы" }, { value: "K-Means", content: "K-Means" }, { value: "DBSCAN", content: "DBSCAN" }]} size="m" />
           <Select value={[statusFilter]} onUpdate={(v) => setStatusFilter(v[0])} options={[{ value: "all", content: "Все статусы" }, { value: "success", content: "Завершено" }, { value: "running", content: "Выполняется" }, { value: "error", content: "Ошибка" }]} size="m" />
         </div>

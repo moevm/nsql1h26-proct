@@ -178,7 +178,7 @@ export function ClusteringPage() {
               <button className="p-1 rounded hover:bg-muted" onClick={() => setBatchModalOpen(false)}><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
-              <TextInput placeholder="Поиск по ID или статусу" value={batchSearch} onUpdate={setBatchSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+              <TextInput placeholder="Поиск по ID или статусу" size="l" value={batchSearch} onUpdate={setBatchSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
               <div className="flex flex-wrap gap-2">
                 <Button view={selectedBatches.includes("all") ? "action" : "outlined"} size="s" onClick={() => setSelectedBatches(["all"])}>Все загрузки</Button>
                 <Button view="outlined" size="s" onClick={() => setSelectedBatches([])}>Очистить</Button>

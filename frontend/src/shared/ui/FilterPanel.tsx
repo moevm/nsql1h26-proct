@@ -20,9 +20,9 @@ export function FilterPanel({ fields, draft, setDraft, onSubmit, onReset }: Prop
             <label className="text-[12px] text-muted-foreground" style={{ fontWeight: 600 }}>
               {field.label}
             </label>
-            {field.type === "text" && <input className="w-full" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} placeholder="Поиск по подстроке" />}
+            {field.type === "text" && <input className="w-full" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />}
             {field.type === "select" && (
-              <select className="w-full" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)}>
+              <select className="w-full h-[36px]" value={draft[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)}>
                 <option value="">Все</option>
                 {field.options?.map((option) => (
                   <option key={option} value={option}>
