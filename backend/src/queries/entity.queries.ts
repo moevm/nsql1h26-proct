@@ -1,0 +1,141 @@
+import { Document, ObjectId } from "mongodb";
+
+import { getCollection } from "../db/collections.js";
+import { entityConfig, type EntityName } from "../schema/entity.schema.js";
+import type { AuthUser } from "../schema/user.schema.js";
+import { getQuery, normalizeIncoming, setNested, type QuerySource } from "../utils/query.js";
+
+export function buildFilter(entity: EntityName, query: QuerySource): Document {
+  const config = entityConfig[entity];
+  const filter: Document = {};
+
+  for (const field of config.text) {
+    const value = getQuery(query, field);
+    if (!value) continue;
+    if (config.exact.includes(field)) {
+      setNested(filter, field, value);
+    } else {
+      setNested(filter, field, { $regex: value, $options: "i" });
+    }
+  }
+
+  for (const field of config.objectIds) {
+    const value = getQuery(query, field);
+    if (value && ObjectId.isValid(value)) setNested(filter, field, new ObjectId(value));
+  }
+
+  for (const field of config.dates) {
+    const from = getQuery(query, `${field}From`);
+    const to = getQuery(query, `${field}To`);
+    if (!from && !to) continue;
+    const range: Document = {};
+    if (from) range.$gte = new Date(from);
+    if (to) range.$lte = new Date(to);
+    setNested(filter, field, range);
+  }
+
+  for (const field of config.numbers) {
+    const min = getQuery(query, `${field}Min`);
+    const max = getQuery(query, `${field}Max`);
+    if (!min && !max) continue;
+    const range: Document = {};
+    if (min) range.$gte = Number(min);
+    if (max) range.$lte = Number(max);
+    setNested(filter, field, range);
+  }
+
+  return filter;
+}
+
+function andObjectIdIn(filter: Document, field: string, ids: ObjectId[]) {
+  if (ids.length === 0) {
+    setNested(filter, field, { $in: [] });
+    return;
+  }
+
+  const existing = field.split(".").reduce<unknown>((current, part) => (current && typeof current === "object" ? (current as Document)[part] : undefined), filter);
+  if (existing instanceof ObjectId) {
+    setNested(filter, field, ids.some((id) => id.equals(existing)) ? existing : { $in: [] });
+    return;
+  }
+  setNested(filter, field, { $in: ids });
+}
+
+async function applyStudentLinkedFilters(entity: EntityName, query: QuerySource, filter: Document) {
+  if (entity !== "sessions" && entity !== "timeline_events") return;
+
+  const studentFilter: Document = {};
+  for (const field of ["group", "program", "educationLevel", "faculty"]) {
+    const value = getQuery(query, `student.${field}`);
+    if (!value) continue;
+    studentFilter[field] = field === "educationLevel" ? value : { $regex: value, $options: "i" };
+  }
+
+  if (Object.keys(studentFilter).length) {
+    const students = await getCollection("students").find(studentFilter, { projection: { _id: 1 } }).toArray();
+    andObjectIdIn(filter, "studentId", students.map((student) => student._id as ObjectId));
+  }
+
+  const courseName = getQuery(query, "courseName");
+  if (entity === "sessions" && courseName) {
+    const events = await getCollection("timeline_events")
+      .find({ "moodle.courseName": { $regex: courseName, $options: "i" } }, { projection: { sessionId: 1 } })
+      .toArray();
+    andObjectIdIn(filter, "_id", events.map((event) => event.sessionId as ObjectId));
+  }
+}
+
+async function applyRoleScope(entity: EntityName, user: AuthUser, filter: Document) {
+  if (user.role === "admin") return;
+
+  if (entity === "uploads" || entity === "clustering_runs") {
+    andObjectIdIn(filter, "userId", [new ObjectId(user._id)]);
+    return;
+  }
+
+  if (entity === "students" || entity === "sessions" || entity === "timeline_events") {
+    const uploads = await getCollection("uploads").find({ userId: new ObjectId(user._id) }, { projection: { _id: 1 } }).toArray();
+    andObjectIdIn(filter, "uploadId", uploads.map((upload) => upload._id as ObjectId));
+  }
+}
+
+export function canReadEntity(entity: EntityName, user: AuthUser) {
+  if (user.role === "admin") return true;
+  return ["uploads", "students", "sessions", "timeline_events", "clustering_runs"].includes(entity);
+}
+
+export function canCreateEntity(entity: EntityName, user: AuthUser) {
+  if (entity === "audit_logs") return false;
+  return user.role === "admin";
+}
+
+export async function listEntities(entity: EntityName, query: QuerySource, user: AuthUser) {
+  const limit = Math.min(Number(getQuery(query, "limit") ?? 50), 200);
+  const page = Math.max(Number(getQuery(query, "page") ?? 1), 1);
+  const filter = buildFilter(entity, query);
+  await applyRoleScope(entity, user, filter);
+  await applyStudentLinkedFilters(entity, query, filter);
+  const collection = getCollection(entity);
+  const [items, total] = await Promise.all([
+    collection
+      .find(filter)
+      .sort(entityConfig[entity].defaultSort)
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .toArray(),
+    collection.countDocuments(filter),
+  ]);
+  return { items, total, page, limit };
+}
+
+export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {
+  const now = new Date();
+  const payload = normalizeIncoming(body);
+  const result = await getCollection(entity).insertOne({
+    ...payload,
+    ...(entity === "uploads" ? { userId: new ObjectId(user._id) } : {}),
+    createdAt: payload.createdAt ? new Date(String(payload.createdAt)) : now,
+    updateTime: now,
+  });
+  return result.insertedId;
+}
