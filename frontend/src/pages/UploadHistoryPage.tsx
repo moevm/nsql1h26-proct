@@ -105,7 +105,7 @@ export function UploadHistoryPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <TextInput
             placeholder="Поиск по ID, автору или типу файла"
-            size="m"
+            size="l"
             value={search}
             onUpdate={setSearch}
             startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
@@ -119,7 +119,7 @@ export function UploadHistoryPage() {
               { value: "warning", content: "Предупреждения" },
               { value: "error", content: "Ошибка" },
             ]}
-            size="m"
+            size="l"
           />
           <Select
             value={[authorFilter]}
@@ -128,7 +128,7 @@ export function UploadHistoryPage() {
               { value: "all", content: "Все авторы" },
               ...authors.map((a) => ({ value: a, content: a })),
             ]}
-            size="m"
+            size="l"
           />
         </div>
       </div>

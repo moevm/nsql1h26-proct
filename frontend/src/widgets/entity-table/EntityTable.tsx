@@ -1,10 +1,11 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, buildQuery, ListResponse } from "../../shared/api/client";
+import { api, ApiError, buildQuery, ListResponse } from "../../shared/api/client";
 import { FilterPanel } from "../../shared/ui/FilterPanel";
 import { AnyRecord, EntityConfig, printable, valueByPath } from "../../entities/types";
 import { useUrlFilters } from "../../features/filtering/useUrlFilters";
 import { useModal } from "../../app/providers/ModalProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
 
 type Props = {
   config: EntityConfig;
@@ -48,6 +49,7 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const { openModal, closeModal } = useModal();
+  const { user } = useAuth();
   const filters = useUrlFilters(config.filters);
   const query = useMemo(() => buildQuery(params), [params]);
 
@@ -57,7 +59,7 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
     try {
       setData(await api<ListResponse<AnyRecord>>(`${config.endpoint}${query}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка загрузки");
+      setError(err instanceof ApiError && err.status === 403 ? "Недостаточно прав для просмотра этой таблицы" : err instanceof Error ? err.message : "Ошибка загрузки");
     } finally {
       setLoading(false);
     }
@@ -72,11 +74,11 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-[20px]" style={{ fontWeight: 600 }}>{config.title}</h2>
-          <p className="text-muted-foreground text-[13px] mt-1">Фильтры сохраняются в URL. Текстовый поиск выполняется по подстроке без учёта регистра.</p>
+          <p className="text-muted-foreground text-[13px] mt-1">Текстовый поиск выполняется по подстроке без учёта регистра.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {extraActions}
-          {config.endpoint !== "/audit-logs" && (
+          {user?.role === "admin" && config.endpoint !== "/audit-logs" && (
             <button className="button" onClick={() => openModal(`Добавить: ${config.title}`, <CreateEntityForm config={config} onCreated={() => { closeModal(); void load(); }} />)}>
               Добавить
             </button>

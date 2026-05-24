@@ -228,7 +228,7 @@ export function ResultsPage() {
           {activeTab === "sessions" ? (
             <>
               <div className="flex flex-wrap gap-2 mb-4">
-                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="s" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); setPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
+                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="l" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); setPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
                 <Select value={[clusterFilter]} onUpdate={(vals) => { setClusterFilter(vals[0]); setPage(1); }} options={dynamicClusterOptions} placeholder="Кластер" size="s" />
                 <Select value={[statusFilter]} onUpdate={(vals) => { setStatusFilter(vals[0]); setPage(1); }} options={[{ value: "all", content: "Все" }, { value: "anomaly", content: "Аномалия" }, { value: "normal", content: "Норма" }]} placeholder="Статус" size="s" />
                 <Button view="outlined" size="s" className="h-8 w-8 p-0"><Filter className="w-3.5 h-3.5" /></Button>

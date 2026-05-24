@@ -9,9 +9,18 @@
   --g-color-text-brand-heavy: #3730a3;
   --g-color-text-brand-contrast: #ffffff;
   --g-color-line-brand: #4f46e5;
+  --g-color-line-generic: var(--input);
+  --g-color-line-generic-hover: var(--input-border-hover);
+  --g-color-line-generic-active: var(--input-border-active);
   --g-color-text-link: #4f46e5;
   --g-color-text-link-hover: #4338ca;
   --g-color-text-link-visited: #6d28d9;
+  --g-select-focus-outline-color: rgba(79, 70, 229, 0.2);
+  --g-text-input-background-color: var(--input-background);
+  --g-text-input-border-color: var(--input);
+  --g-text-input-border-color-hover: var(--input-border-hover);
+  --g-text-input-border-color-active: var(--input-border-active);
+  --g-text-input-focus-outline-color: rgba(79, 70, 229, 0.2);
 }
 
 /* Prevent text wrapping in Gravity UI buttons */
@@ -46,7 +55,9 @@
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
   --border: #e5e7eb;
-  --input: #e5e7eb;
+  --input: #cbd5e1;
+  --input-border-hover: #94a3b8;
+  --input-border-active: #4f46e5;
   --input-background: #ffffff;
   --switch-background: #d1d5db;
   --font-weight-medium: 600;
@@ -98,7 +109,10 @@
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
   --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
+  --input: oklch(0.439 0 0);
+  --input-border-hover: oklch(0.556 0 0);
+  --input-border-active: oklch(0.708 0 0);
+  --input-background: oklch(0.205 0 0);
   --ring: oklch(0.439 0 0);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
@@ -229,5 +243,24 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+
+  input:not(.g-text-input__control):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    @apply rounded-md border border-input bg-input-background px-3 py-2 text-foreground shadow-sm transition-colors;
+  }
+
+  input:not(.g-text-input__control):not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+  select:hover,
+  textarea:hover {
+    border-color: var(--input-border-hover);
+  }
+
+  input:not(.g-text-input__control):not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--input-border-active);
+    @apply outline-none ring-2 ring-primary/20;
   }
 }
