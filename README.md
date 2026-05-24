@@ -17,6 +17,6 @@
 
 <a href=" ./../../../actions/workflows/7_app_is_ready.yml" >![7. App is ready]( ./../../actions/workflows/7_app_is_ready.yml/badge.svg)</a>
 
-Данные для входа:
-Админ - admin@example.com / password
+## Данные для входа:
+Админ - admin@example.com / password <br/>
 Преподаватель - teacher@example.com / password
