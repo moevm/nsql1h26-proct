@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type AnyRecord = Record<string, unknown> & { _id?: string };
 
 export type User = {
@@ -20,6 +22,8 @@ export type EntityConfig = {
   createEndpoint?: string;
   detailTitleKey?: string;
   detailBackPath?: string;
+  detailAdditionalNodes?: (record: AnyRecord) => ReactNode;
+  detailEditable?: boolean;
   columns: { key: string; label: string }[];
   filters: FilterField[];
   createTemplate: AnyRecord;

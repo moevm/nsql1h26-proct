@@ -3,7 +3,7 @@ import type { Document } from "mongodb";
 
 import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
-import { canCreateEntity, canReadEntity, createEntity, getSessionById, listEntities } from "../queries/entity.queries.js";
+import { canCreateEntity, canReadEntity, createEntity, getSessionById, listEntities, updateSessionById } from "../queries/entity.queries.js";
 import { entityNames } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { serializeDocument } from "../utils/query.js";
@@ -40,6 +40,26 @@ for (const entity of entityNames) {
         }
 
         const session = await getSessionById(String(req.params.id ?? ""), user);
+        if (!session) {
+          res.status(404).json({ message: "Сессия не найдена" });
+          return;
+        }
+
+        res.json(serializeDocument(session));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("sessions", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const session = await updateSessionById(String(req.params.id ?? ""), req.body as Document, user);
         if (!session) {
           res.status(404).json({ message: "Сессия не найдена" });
           return;
