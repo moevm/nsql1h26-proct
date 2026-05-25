@@ -169,8 +169,30 @@ async function enrichSessionItems(items: Document[]) {
   }));
 }
 
+async function enrichTimelineEventItems(items: Document[]) {
+  if (!items.length) return items;
+
+  const studentIds = uniqueObjectIds(items.map((item) => item.studentId));
+  const students = studentIds.length
+    ? await getCollection("students")
+        .find(
+          { _id: { $in: studentIds } },
+          { projection: { fullName: 1, group: 1, program: 1, educationLevel: 1, faculty: 1 } },
+        )
+        .toArray()
+    : [];
+
+  const studentsById = new Map(students.map((student) => [objectIdKey(student._id), student]));
+
+  return items.map((item) => ({
+    ...item,
+    student: studentsById.get(objectIdKey(item.studentId)) ?? item.student,
+  }));
+}
+
 async function enrichEntityItems(entity: EntityName, items: Document[]) {
   if (entity === "sessions") return enrichSessionItems(items);
+  if (entity === "timeline_events") return enrichTimelineEventItems(items);
   return items;
 }
 
