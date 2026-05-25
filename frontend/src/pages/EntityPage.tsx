@@ -11,6 +11,7 @@ export function EntityPage({ name }: { name: keyof typeof entityConfigs }) {
     if (name === "runs") return `/results/${row._id}`;
     if (name === "students") return `/sessions?studentId=${row._id}`;
     if (name === "sessions") return `/sessions/${row._id}`;
+    if (name === "events") return `/events/${row._id}`;
     return undefined;
   }
 

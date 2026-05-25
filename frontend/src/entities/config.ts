@@ -97,16 +97,32 @@ export const entityConfigs: Record<string, EntityConfig> = {
   events: {
     title: "Таймлайн событий",
     endpoint: "/timeline-events",
+    detailTitleKey: "eventType",
+    detailBackPath: "/events",
+    detailEditable: true,
+    detailAdditionalNodes: (record) =>
+      record.sessionId
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/sessions/${record.sessionId}` },
+            "Сессия",
+          )
+        : null,
     columns: [
       { key: "eventType", label: "Тип" },
       { key: "eventTime", label: "Время" },
       { key: "sourceFileKey", label: "Файл" },
-      { key: "moodle.action", label: "Moodle action" },
-      { key: "moodle.target", label: "Цель" },
+      { key: "moodle.action", label: "Действие Moodle" },
+      { key: "moodle.courseName", label: "Имя курса" },
+      { key: "moodle.target", label: "Цель Moodle" },
+      { key: "student.group", label: "Группа студента" },
+      { key: "student.program", label: "Программа студента" },
+      { key: "student.educationLevel", label: "Уровень обучения" },
+      { key: "moodle.timeSpent", label: "Время на вопрос" },
     ],
     filters: [
       { key: "eventType", label: "Тип события", type: "select", options: ["moodle", "ocr_frame", "system"] },
-      dateFilters("eventTime", "Время события"),
+      dateTimeFilters("eventTime", "Время события"),
       textFilter("sourceFileKey", "Файл"),
       textFilter("moodle.action", "Действие Moodle"),
       textFilter("moodle.courseName", "Имя курса"),

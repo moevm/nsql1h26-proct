@@ -169,8 +169,30 @@ async function enrichSessionItems(items: Document[]) {
   }));
 }
 
+async function enrichTimelineEventItems(items: Document[]) {
+  if (!items.length) return items;
+
+  const studentIds = uniqueObjectIds(items.map((item) => item.studentId));
+  const students = studentIds.length
+    ? await getCollection("students")
+        .find(
+          { _id: { $in: studentIds } },
+          { projection: { fullName: 1, group: 1, program: 1, educationLevel: 1, faculty: 1 } },
+        )
+        .toArray()
+    : [];
+
+  const studentsById = new Map(students.map((student) => [objectIdKey(student._id), student]));
+
+  return items.map((item) => ({
+    ...item,
+    student: studentsById.get(objectIdKey(item.studentId)) ?? item.student,
+  }));
+}
+
 async function enrichEntityItems(entity: EntityName, items: Document[]) {
   if (entity === "sessions") return enrichSessionItems(items);
+  if (entity === "timeline_events") return enrichTimelineEventItems(items);
   return items;
 }
 
@@ -215,12 +237,35 @@ export async function getSessionById(id: string, user: AuthUser) {
   return enriched ?? null;
 }
 
+export async function getTimelineEventById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("timeline_events", user, filter);
+  const event = await getCollection("timeline_events").findOne(filter);
+  if (!event) return null;
+
+  const [enriched] = await enrichTimelineEventItems([event]);
+  return enriched ?? null;
+}
+
 function normalizeSessionUpdate(body: Document) {
   const payload = normalizeIncoming(body);
   delete payload.student;
   delete payload.courseName;
 
   for (const field of ["startTime", "endTime", "createdAt", "updateTime"]) {
+    if (payload[field]) payload[field] = new Date(String(payload[field]));
+  }
+
+  return payload;
+}
+
+function normalizeTimelineEventUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  delete payload.student;
+
+  for (const field of ["eventTime", "createdAt", "updateTime"]) {
     if (payload[field]) payload[field] = new Date(String(payload[field]));
   }
 
@@ -240,6 +285,22 @@ export async function updateSessionById(id: string, body: Document, user: AuthUs
   if (!result) return null;
 
   const [enriched] = await enrichSessionItems([result]);
+  return enriched ?? null;
+}
+
+export async function updateTimelineEventById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("timeline_events", user, filter);
+
+  const payload = normalizeTimelineEventUpdate(body);
+  payload.updateTime = new Date();
+
+  const result = await getCollection("timeline_events").findOneAndUpdate(filter, { $set: payload }, { returnDocument: "after" });
+  if (!result) return null;
+
+  const [enriched] = await enrichTimelineEventItems([result]);
   return enriched ?? null;
 }
 
