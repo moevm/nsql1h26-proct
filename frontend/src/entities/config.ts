@@ -111,7 +111,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
     ],
     filters: [
       { key: "eventType", label: "Тип события", type: "select", options: ["moodle", "ocr_frame", "system"] },
-      dateFilters("eventTime", "Время события"),
+      dateTimeFilters("eventTime", "Время события"),
       textFilter("sourceFileKey", "Файл"),
       textFilter("moodle.action", "Действие Moodle"),
       textFilter("moodle.courseName", "Имя курса"),
