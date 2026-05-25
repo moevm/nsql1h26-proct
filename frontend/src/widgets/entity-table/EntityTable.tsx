@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, buildQuery, ListResponse } from "../../shared/api/client";
 import { FilterPanel } from "../../shared/ui/FilterPanel";
 import { AnyRecord, EntityConfig, printable, valueByPath } from "../../entities/types";
@@ -44,6 +44,7 @@ function CreateEntityForm({ config, onCreated }: { config: EntityConfig; onCreat
 }
 
 export function EntityTable({ config, rowLink, extraActions }: Props) {
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const [data, setData] = useState<ListResponse<AnyRecord> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,28 +103,33 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
                   {config.columns.map((column) => (
                     <th className="pb-3 pr-4" style={{ fontWeight: 500 }} key={column.key}>{column.label}</th>
                   ))}
-                  {rowLink && <th className="pb-3" style={{ fontWeight: 500 }}>Переход</th>}
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((row) => (
-                  <tr className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors" key={row._id ?? JSON.stringify(row)}>
-                    {config.columns.map((column) => (
-                      <td className="py-3 pr-4 max-w-[280px] truncate" key={column.key}>{printable(valueByPath(row, column.key))}</td>
-                    ))}
-                    {rowLink && (
-                      <td className="py-3">
-                        {rowLink(row) ? (
-                          <Link className="text-link" to={rowLink(row)!}>
-                            Открыть
-                          </Link>
-                        ) : (
-                          ""
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {data.items.map((row) => {
+                  const link = rowLink?.(row);
+
+                  return (
+                    <tr
+                      className={`border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors ${link ? "cursor-pointer" : ""}`}
+                      key={row._id ?? JSON.stringify(row)}
+                      onClick={() => { if (link) navigate(link); }}
+                      onKeyDown={(event) => {
+                        if (!link || (event.key !== "Enter" && event.key !== " ")) return;
+                        event.preventDefault();
+                        navigate(link);
+                      }}
+                      tabIndex={link ? 0 : undefined}
+                      role={link ? "link" : undefined}
+                      title={link ? "Открыть запись" : undefined}
+                      aria-label={link ? "Открыть запись" : undefined}
+                    >
+                      {config.columns.map((column) => (
+                        <td className="py-3 pr-4 max-w-[280px] truncate" key={column.key}>{printable(valueByPath(row, column.key))}</td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

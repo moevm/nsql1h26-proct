@@ -203,6 +203,18 @@ export async function listEntities(entity: EntityName, query: QuerySource, user:
   return { items: await enrichEntityItems(entity, items), total, page, limit };
 }
 
+export async function getSessionById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("sessions", user, filter);
+  const session = await getCollection("sessions").findOne(filter);
+  if (!session) return null;
+
+  const [enriched] = await enrichSessionItems([session]);
+  return enriched ?? null;
+}
+
 export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {
   const now = new Date();
   const payload = normalizeIncoming(body);
