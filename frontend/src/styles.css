@@ -177,7 +177,7 @@ textarea {
 
 .button,
 .icon-button {
-  border: 0;
+  border: 1px solid #354bea;
   background: #4b63f4;
   color: white;
   border-radius: 12px;
@@ -188,17 +188,42 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  font-weight: 600;
+  line-height: 1.2;
+  min-height: 38px;
+  box-shadow: 0 8px 18px rgba(75, 99, 244, 0.22);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.button:hover,
+.icon-button:hover {
+  background: #3f55df;
+  border-color: #2f42cf;
+  box-shadow: 0 10px 22px rgba(75, 99, 244, 0.28);
+  transform: translateY(-1px);
+}
+
+.button:focus-visible,
+.icon-button:focus-visible {
+  outline: 3px solid rgba(75, 99, 244, 0.3);
+  outline-offset: 2px;
 }
 
 .button_secondary {
-  background: #edf1ff;
+  border-color: #b8c4ff;
+  background: #f4f6ff;
   color: #334080;
+  box-shadow: 0 6px 16px rgba(51, 64, 128, 0.12);
+}
+
+.button_secondary:hover {
+  background: #e6ebff;
+  border-color: #8fa0ff;
+  box-shadow: 0 8px 18px rgba(51, 64, 128, 0.18);
 }
 
 .icon-button {
   padding: 9px;
-  background: #edf1ff;
-  color: #334080;
 }
 
 .filter-panel,

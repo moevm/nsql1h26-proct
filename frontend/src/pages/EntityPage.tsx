@@ -10,7 +10,7 @@ export function EntityPage({ name }: { name: keyof typeof entityConfigs }) {
     if (name === "uploads") return `/uploads/${row._id}/log`;
     if (name === "runs") return `/results/${row._id}`;
     if (name === "students") return `/sessions?studentId=${row._id}`;
-    if (name === "sessions") return `/events?sessionId=${row._id}`;
+    if (name === "sessions") return `/sessions/${row._id}`;
     return undefined;
   }
 

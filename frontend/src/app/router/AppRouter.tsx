@@ -3,6 +3,7 @@ import { AppLayout } from "../../widgets/layout/AppLayout";
 import { BackupPage } from "../../pages/BackupPage";
 import { ClusterHistoryPage } from "../../pages/ClusterHistoryPage";
 import { ClusteringPage } from "../../pages/ClusteringPage";
+import { EntityDetailsPage } from "../../pages/EntityDetailsPage";
 import { EntityPage } from "../../pages/EntityPage";
 import { LoginPage } from "../../pages/LoginPage";
 import { ProcessingPage } from "../../pages/ProcessingPage";
@@ -27,6 +28,7 @@ export function AppRouter() {
           <Route path="/uploads/:uploadId/log" element={<UploadLogPage />} />
           <Route path="/students" element={<EntityPage name="students" />} />
           <Route path="/sessions" element={<EntityPage name="sessions" />} />
+          <Route path="/sessions/:id" element={<EntityDetailsPage name="sessions" />} />
           <Route path="/events" element={<EntityPage name="events" />} />
           <Route path="/processing" element={<ProcessingPage />} />
           <Route path="/clustering" element={<ClusteringPage />} />

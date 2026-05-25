@@ -18,6 +18,8 @@ export type EntityConfig = {
   title: string;
   endpoint: string;
   createEndpoint?: string;
+  detailTitleKey?: string;
+  detailBackPath?: string;
   columns: { key: string; label: string }[];
   filters: FilterField[];
   createTemplate: AnyRecord;

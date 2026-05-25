@@ -119,6 +119,8 @@ export const entityConfigs: Record<string, EntityConfig> = {
   sessions: {
     title: "Сессии",
     endpoint: "/sessions",
+    detailTitleKey: "examName",
+    detailBackPath: "/sessions",
     columns: [
       { key: "examName", label: "Экзамен" },
       { key: "courseName", label: "Имя курса" },
