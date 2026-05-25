@@ -99,6 +99,64 @@ async function applyRoleScope(entity: EntityName, user: AuthUser, filter: Docume
   }
 }
 
+function uniqueObjectIds(values: unknown[]) {
+  const ids = new Map<string, ObjectId>();
+  for (const value of values) {
+    if (value instanceof ObjectId) ids.set(value.toHexString(), value);
+  }
+  return [...ids.values()];
+}
+
+function objectIdKey(value: unknown) {
+  return value instanceof ObjectId ? value.toHexString() : "";
+}
+
+async function enrichSessionItems(items: Document[]) {
+  if (!items.length) return items;
+
+  const studentIds = uniqueObjectIds(items.map((item) => item.studentId));
+  const sessionIds = uniqueObjectIds(items.map((item) => item._id));
+  const [students, courseEvents] = await Promise.all([
+    studentIds.length
+      ? getCollection("students")
+          .find(
+            { _id: { $in: studentIds } },
+            { projection: { fullName: 1, group: 1, program: 1, educationLevel: 1, faculty: 1 } },
+          )
+          .toArray()
+      : Promise.resolve([]),
+    sessionIds.length
+      ? getCollection("timeline_events")
+          .find(
+            { sessionId: { $in: sessionIds }, "moodle.courseName": { $exists: true, $ne: "" } },
+            { projection: { sessionId: 1, "moodle.courseName": 1 }, sort: { eventTime: 1 } },
+          )
+          .toArray()
+      : Promise.resolve([]),
+  ]);
+
+  const studentsById = new Map(students.map((student) => [objectIdKey(student._id), student]));
+  const courseNameBySessionId = new Map<string, string>();
+  for (const event of courseEvents) {
+    const sessionId = objectIdKey(event.sessionId);
+    const courseName = (event.moodle as Document | undefined)?.courseName;
+    if (sessionId && courseName && !courseNameBySessionId.has(sessionId)) {
+      courseNameBySessionId.set(sessionId, String(courseName));
+    }
+  }
+
+  return items.map((item) => ({
+    ...item,
+    student: studentsById.get(objectIdKey(item.studentId)) ?? item.student,
+    courseName: courseNameBySessionId.get(objectIdKey(item._id)) ?? item.courseName ?? "",
+  }));
+}
+
+async function enrichEntityItems(entity: EntityName, items: Document[]) {
+  if (entity === "sessions") return enrichSessionItems(items);
+  return items;
+}
+
 export function canReadEntity(entity: EntityName, user: AuthUser) {
   if (user.role === "admin") return true;
   return ["uploads", "students", "sessions", "timeline_events", "clustering_runs"].includes(entity);
@@ -125,7 +183,7 @@ export async function listEntities(entity: EntityName, query: QuerySource, user:
       .toArray(),
     collection.countDocuments(filter),
   ]);
-  return { items, total, page, limit };
+  return { items: await enrichEntityItems(entity, items), total, page, limit };
 }
 
 export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {

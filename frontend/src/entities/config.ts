@@ -118,6 +118,10 @@ export const entityConfigs: Record<string, EntityConfig> = {
     endpoint: "/sessions",
     columns: [
       { key: "examName", label: "Экзамен" },
+      { key: "courseName", label: "Имя курса" },
+      { key: "student.group", label: "Группа студента" },
+      { key: "student.program", label: "Программа студента" },
+      { key: "student.educationLevel", label: "Уровень обучения" },
       { key: "startTime", label: "Начало" },
       { key: "durationMinutes", label: "Длительность" },
       { key: "metrics.combined.riskLevel", label: "Риск" },
