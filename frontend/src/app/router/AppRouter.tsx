@@ -30,6 +30,7 @@ export function AppRouter() {
           <Route path="/sessions" element={<EntityPage name="sessions" />} />
           <Route path="/sessions/:id" element={<EntityDetailsPage name="sessions" />} />
           <Route path="/events" element={<EntityPage name="events" />} />
+          <Route path="/events/:id" element={<EntityDetailsPage name="events" />} />
           <Route path="/processing" element={<ProcessingPage />} />
           <Route path="/clustering" element={<ClusteringPage />} />
           <Route path="/clustering-runs" element={<EntityPage name="runs" />} />

@@ -97,6 +97,17 @@ export const entityConfigs: Record<string, EntityConfig> = {
   events: {
     title: "Таймлайн событий",
     endpoint: "/timeline-events",
+    detailTitleKey: "eventType",
+    detailBackPath: "/events",
+    detailEditable: true,
+    detailAdditionalNodes: (record) =>
+      record.sessionId
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/sessions/${record.sessionId}` },
+            "Сессия",
+          )
+        : null,
     columns: [
       { key: "eventType", label: "Тип" },
       { key: "eventTime", label: "Время" },
