@@ -5,6 +5,21 @@ import { entityConfig, type EntityName } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { getQuery, normalizeIncoming, setNested, type QuerySource } from "../utils/query.js";
 
+function parseDateFilterValue(value: string, boundary: "from" | "to") {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const timestamp = /^-?\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  const parsed = Number.isNaN(timestamp) ? new Date(trimmed) : new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    parsed.setUTCHours(boundary === "to" ? 23 : 0, boundary === "to" ? 59 : 0, boundary === "to" ? 59 : 0, boundary === "to" ? 999 : 0);
+  }
+
+  return parsed;
+}
+
 export function buildFilter(entity: EntityName, query: QuerySource): Document {
   const config = entityConfig[entity];
   const filter: Document = {};
@@ -29,9 +44,11 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
     const to = getQuery(query, `${field}To`);
     if (!from && !to) continue;
     const range: Document = {};
-    if (from) range.$gte = new Date(from);
-    if (to) range.$lte = new Date(to);
-    setNested(filter, field, range);
+    const fromDate = from ? parseDateFilterValue(from, "from") : undefined;
+    const toDate = to ? parseDateFilterValue(to, "to") : undefined;
+    if (fromDate) range.$gte = fromDate;
+    if (toDate) range.$lte = toDate;
+    if (Object.keys(range).length) setNested(filter, field, range);
   }
 
   for (const field of config.numbers) {

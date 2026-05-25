@@ -1,8 +1,11 @@
 import { EntityConfig } from "./types";
 
 const dateFilters = (field: string, label: string) => ({ key: field, label, type: "dateRange" as const });
+const dateTimeFilters = (field: string, label: string) => ({ key: field, label, type: "dateTime" as const });
 const numberFilters = (field: string, label: string) => ({ key: field, label, type: "numberRange" as const });
 const textFilter = (field: string, label: string) => ({ key: field, label, type: "text" as const });
+
+
 
 export const entityConfigs: Record<string, EntityConfig> = {
   users: {
@@ -130,7 +133,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
       textFilter("student.program", "Программа студента"),
       { key: "student.educationLevel", label: "Уровень обучения", type: "select", options: ["bachelor", "master", "specialist"] },
       { key: "metrics.combined.riskLevel", label: "Риск", type: "select", options: ["low", "medium", "high"] },
-      dateFilters("startTime", "Начало"),
+      dateTimeFilters("startTime", "Начало"),
       numberFilters("durationMinutes", "Длительность"),
       numberFilters("metrics.combined.anomalyScore", "Балл аномальности"),
     ],
