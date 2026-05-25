@@ -10,7 +10,7 @@ export type User = {
 export type FilterField = {
   key: string;
   label: string;
-  type: "text" | "select" | "dateRange" | "numberRange";
+  type: "text" | "select" | "dateRange" | "numberRange" | "dateTime";
   options?: string[];
 };
 

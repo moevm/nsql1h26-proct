@@ -37,6 +37,12 @@ export function FilterPanel({ fields, draft, setDraft, onSubmit, onReset }: Prop
                 <input type="date" value={draft[`${field.key}To`] ?? ""} onChange={(event) => setValue(`${field.key}To`, event.target.value)} aria-label={`${field.label} до`} />
               </div>
             )}
+            {field.type === "dateTime" && (
+              <div className="grid grid-cols-2 gap-2">
+                <input type="datetime-local" value={draft[`${field.key}From`] ?? ""} onChange={(event) => setValue(`${field.key}From`, event.target.value)} aria-label={`${field.label} от`} />
+                <input type="datetime-local" value={draft[`${field.key}To`] ?? ""} onChange={(event) => setValue(`${field.key}To`, event.target.value)} aria-label={`${field.label} до`} />
+              </div>
+            )}
             {field.type === "numberRange" && (
               <div className="grid grid-cols-2 gap-2">
                 <input type="number" value={draft[`${field.key}Min`] ?? ""} onChange={(event) => setValue(`${field.key}Min`, event.target.value)} placeholder="От" />
@@ -53,7 +59,7 @@ export function FilterPanel({ fields, draft, setDraft, onSubmit, onReset }: Prop
         <button className="button button_secondary" type="button" onClick={onReset}>
           Сбросить
         </button>
-        </div>
+      </div>
     </form>
   );
 }
