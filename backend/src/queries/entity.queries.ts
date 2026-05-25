@@ -215,6 +215,34 @@ export async function getSessionById(id: string, user: AuthUser) {
   return enriched ?? null;
 }
 
+function normalizeSessionUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  delete payload.student;
+  delete payload.courseName;
+
+  for (const field of ["startTime", "endTime", "createdAt", "updateTime"]) {
+    if (payload[field]) payload[field] = new Date(String(payload[field]));
+  }
+
+  return payload;
+}
+
+export async function updateSessionById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("sessions", user, filter);
+
+  const payload = normalizeSessionUpdate(body);
+  payload.updateTime = new Date();
+
+  const result = await getCollection("sessions").findOneAndUpdate(filter, { $set: payload }, { returnDocument: "after" });
+  if (!result) return null;
+
+  const [enriched] = await enrichSessionItems([result]);
+  return enriched ?? null;
+}
+
 export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {
   const now = new Date();
   const payload = normalizeIncoming(body);

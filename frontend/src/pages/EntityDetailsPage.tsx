@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { entityConfigs } from "../entities/config";
 import { AnyRecord, printable, valueByPath } from "../entities/types";
 import { api, ApiError } from "../shared/api/client";
+import { useAuth } from "../app/providers/AuthProvider";
 
 type Props = {
   name: keyof typeof entityConfigs;
@@ -40,9 +41,14 @@ function JsonValue({ value }: { value: unknown }) {
 export function EntityDetailsPage({ name }: Props) {
   const { id } = useParams();
   const config = entityConfigs[name];
+  const { user } = useAuth();
   const [record, setRecord] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -57,6 +63,35 @@ export function EntityDetailsPage({ name }: Props) {
 
   const titleValue = record && config.detailTitleKey ? printable(valueByPath(record, config.detailTitleKey)) : "";
   const backPath = config.detailBackPath ?? `/${name}`;
+  const additionalNodes = record ? config.detailAdditionalNodes?.(record) : null;
+  const canEdit = Boolean(config.detailEditable && user?.role === "admin" && record);
+
+  function startEditing() {
+    if (!record) return;
+    setEditValue(JSON.stringify(record, null, 2));
+    setSaveError("");
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!id) return;
+
+    setSaving(true);
+    setSaveError("");
+    try {
+      const payload = JSON.parse(editValue) as AnyRecord;
+      const updated = await api<AnyRecord>(`${config.endpoint}/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      setRecord(updated);
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof SyntaxError ? "JSON заполнен некорректно" : err instanceof Error ? err.message : "Ошибка сохранения");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <section className="bg-card rounded-xl border border-border p-5 space-y-5">
@@ -66,10 +101,11 @@ export function EntityDetailsPage({ name }: Props) {
           <p className="text-muted-foreground text-[13px] mt-1">Все атрибуты записи</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {name === "sessions" && record?._id && (
-            <Link className="button button_secondary" to={`/events?sessionId=${record._id}`}>
-              События сессии
-            </Link>
+          {additionalNodes}
+          {canEdit && !editing && (
+            <button className="button button_secondary" type="button" onClick={startEditing}>
+              Редактировать
+            </button>
           )}
           <Link className="button" to={backPath}>
             Назад
@@ -79,6 +115,24 @@ export function EntityDetailsPage({ name }: Props) {
 
       {loading && <div className="notice">Загрузка данных...</div>}
       {error && <div className="error">{error}</div>}
+      {editing && record && (
+        <div className="border border-border rounded-xl p-4 space-y-3">
+          <div>
+            <h3 className="text-[16px]" style={{ fontWeight: 600 }}>Редактирование</h3>
+            <p className="text-[12px] text-muted-foreground mt-1">Измените JSON и сохраните запись.</p>
+          </div>
+          <textarea className="w-full font-mono text-[12px]" rows={18} value={editValue} onChange={(event) => setEditValue(event.target.value)} />
+          {saveError && <div className="error">{saveError}</div>}
+          <div className="flex justify-end gap-2">
+            <button className="button button_secondary" type="button" onClick={() => setEditing(false)} disabled={saving}>
+              Отмена
+            </button>
+            <button className="button" type="button" onClick={() => void saveEdit()} disabled={saving}>
+              {saving ? "Сохранение..." : "Сохранить"}
+            </button>
+          </div>
+        </div>
+      )}
       {!loading && record && (
         <div className="columns-1 lg:columns-2 gap-3">
           {Object.entries(record).map(([key, value]) => (

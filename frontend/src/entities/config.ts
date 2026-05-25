@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { Link } from "react-router-dom";
 import { EntityConfig } from "./types";
 
 const dateFilters = (field: string, label: string) => ({ key: field, label, type: "dateRange" as const });
@@ -121,6 +123,15 @@ export const entityConfigs: Record<string, EntityConfig> = {
     endpoint: "/sessions",
     detailTitleKey: "examName",
     detailBackPath: "/sessions",
+    detailEditable: true,
+    detailAdditionalNodes: (record) =>
+      record._id
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/events?sessionId=${record._id}` },
+            "События сессии",
+          )
+        : null,
     columns: [
       { key: "examName", label: "Экзамен" },
       { key: "courseName", label: "Имя курса" },
