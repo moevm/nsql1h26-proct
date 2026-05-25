@@ -2,7 +2,6 @@ import { createElement } from "react";
 import { Link } from "react-router-dom";
 import { EntityConfig } from "./types";
 
-const dateFilters = (field: string, label: string) => ({ key: field, label, type: "dateRange" as const });
 const dateTimeFilters = (field: string, label: string) => ({ key: field, label, type: "dateTime" as const });
 const numberFilters = (field: string, label: string) => ({ key: field, label, type: "numberRange" as const });
 const textFilter = (field: string, label: string) => ({ key: field, label, type: "text" as const });
@@ -23,7 +22,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
       textFilter("fullName", "ФИО"),
       textFilter("email", "Email"),
       { key: "role", label: "Роль", type: "select", options: ["admin", "teacher"] },
-      dateFilters("createdAt", "Дата создания"),
+      dateTimeFilters("createdAt", "Дата создания"),
     ],
     createTemplate: { email: "", passwordHash: "", fullName: "", role: "teacher" },
   },
@@ -53,7 +52,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
     filters: [
       { key: "status", label: "Статус", type: "select", options: ["pending", "processing", "done", "done_with_warnings", "error"] },
       textFilter("importBatchId", "ID пачки"),
-      dateFilters("createdAt", "Дата создания"),
+      dateTimeFilters("createdAt", "Дата создания"),
       numberFilters("filesCount", "Количество файлов"),
       numberFilters("totalRows", "Количество строк"),
       numberFilters("matchedStudents", "Сопоставлено студентов"),
@@ -63,6 +62,16 @@ export const entityConfigs: Record<string, EntityConfig> = {
   students: {
     title: "Студенты",
     endpoint: "/students",
+    detailTitleKey: "fullName",
+    detailBackPath: "/students",
+    detailAdditionalNodes: (record) =>
+      record._id
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/sessions?studentId=${record._id}` },
+            "Сессии студента",
+          )
+        : null,
     columns: [
       { key: "fullName", label: "ФИО" },
       { key: "externalId", label: "Внешний ID" },
@@ -71,6 +80,8 @@ export const entityConfigs: Record<string, EntityConfig> = {
       { key: "program", label: "Программа" },
       { key: "educationLevel", label: "Уровень" },
       { key: "group", label: "Группа" },
+      { key: "createdAt", label: "Дата/время регистрации" },
+      { key: "sessionCount", label: "Сессий" },
     ],
     filters: [
       textFilter("fullName", "ФИО"),
@@ -81,6 +92,8 @@ export const entityConfigs: Record<string, EntityConfig> = {
       textFilter("program", "Программа"),
       { key: "educationLevel", label: "Уровень обучения", type: "select", options: ["bachelor", "master", "specialist"] },
       textFilter("group", "Группа"),
+      dateTimeFilters("createdAt", "Дата/время регистрации"),
+      numberFilters("sessionCount", "Количество сессий"),
     ],
     createTemplate: {
       externalId: "",
@@ -106,7 +119,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
     ],
     filters: [
       { key: "eventType", label: "Тип события", type: "select", options: ["moodle", "ocr_frame", "system"] },
-      dateFilters("eventTime", "Время события"),
+      dateTimeFilters("eventTime", "Время события"),
       textFilter("sourceFileKey", "Файл"),
       textFilter("moodle.action", "Действие Moodle"),
       textFilter("moodle.courseName", "Имя курса"),
@@ -177,7 +190,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
     filters: [
       { key: "algorithm", label: "Алгоритм", type: "select", options: ["kmeans", "dbscan"] },
       { key: "status", label: "Статус", type: "select", options: ["running", "done", "error"] },
-      dateFilters("startedAt", "Начало"),
+      dateTimeFilters("startedAt", "Начало"),
       numberFilters("results.totalSessions", "Количество сессий"),
       numberFilters("results.anomalyCount", "Количество аномалий"),
     ],
@@ -196,7 +209,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
       { key: "actorType", label: "Тип субъекта", type: "select", options: ["user", "system"] },
       textFilter("action", "Действие"),
       textFilter("entityType", "Сущность"),
-      dateFilters("occurredAt", "Время"),
+      dateTimeFilters("occurredAt", "Время"),
     ],
     createTemplate: {},
   },

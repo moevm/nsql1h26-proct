@@ -18,5 +18,6 @@
 <a href=" ./../../../actions/workflows/7_app_is_ready.yml" >![7. App is ready]( ./../../actions/workflows/7_app_is_ready.yml/badge.svg)</a>
 
 ## Данные для входа:
+Сервис: http://127.0.0.1:5173 <br/>
 Админ - admin@example.com / password <br/>
 Преподаватель - teacher@example.com / password
