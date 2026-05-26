@@ -4,15 +4,61 @@ import { History, Search, Filter, BarChart3, X, ChevronDown, ChevronUp, Trash2 }
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { runStatusLabels } from "../shared/config/ui";
+import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 
 type SortField = "id" | "startedAt" | "algorithm" | "status";
+
+function matchesText(value: string, filter: string) {
+  return !filter || value.toLowerCase().includes(filter.toLowerCase());
+}
+
+function numberFilterValue(value: string) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function matchesNumberRange(value: number, min: string, max: string) {
+  const minValue = numberFilterValue(min);
+  const maxValue = numberFilterValue(max);
+  if (minValue !== undefined && value < minValue) return false;
+  if (maxValue !== undefined && value > maxValue) return false;
+  return true;
+}
+
+function dateFilterValue(value: string) {
+  if (!value.trim() || !isValidIsoDateTime(value)) return undefined;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function matchesDateRange(rawValue: string, from?: number, to?: number) {
+  if (from === undefined && to === undefined) return true;
+  const time = new Date(rawValue).getTime();
+  if (Number.isNaN(time)) return false;
+  if (from !== undefined && time < from) return false;
+  if (to !== undefined && time > to) return false;
+  return true;
+}
 
 export function ClusterHistoryPage() {
   const navigate = useNavigate();
   const { runs, deleteRun } = useClusteringRuns(50);
-  const [search, setSearch] = useState("");
+  const [idFilter, setIdFilter] = useState("");
+  const [startedFrom, setStartedFrom] = useState("");
+  const [startedTo, setStartedTo] = useState("");
+  const [finishedFrom, setFinishedFrom] = useState("");
+  const [finishedTo, setFinishedTo] = useState("");
+  const [durationMin, setDurationMin] = useState("");
+  const [durationMax, setDurationMax] = useState("");
   const [algoFilter, setAlgoFilter] = useState("all");
+  const [clustersMin, setClustersMin] = useState("");
+  const [clustersMax, setClustersMax] = useState("");
+  const [anomaliesMin, setAnomaliesMin] = useState("");
+  const [anomaliesMax, setAnomaliesMax] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [subsetFilter, setSubsetFilter] = useState("");
   const [sortField, setSortField] = useState<SortField>("startedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -26,20 +72,59 @@ export function ClusterHistoryPage() {
     return sortDir === "asc" ? <ChevronUp className="w-3 h-3 text-primary" /> : <ChevronDown className="w-3 h-3 text-primary" />;
   };
 
-  const hasFilters = search || algoFilter !== "all" || statusFilter !== "all";
-  const resetFilters = () => { setSearch(""); setAlgoFilter("all"); setStatusFilter("all"); };
+  const hasFilters =
+    idFilter ||
+    startedFrom ||
+    startedTo ||
+    finishedFrom ||
+    finishedTo ||
+    durationMin ||
+    durationMax ||
+    algoFilter !== "all" ||
+    clustersMin ||
+    clustersMax ||
+    anomaliesMin ||
+    anomaliesMax ||
+    statusFilter !== "all" ||
+    subsetFilter;
+  const resetFilters = () => {
+    setIdFilter("");
+    setStartedFrom("");
+    setStartedTo("");
+    setFinishedFrom("");
+    setFinishedTo("");
+    setDurationMin("");
+    setDurationMax("");
+    setAlgoFilter("all");
+    setClustersMin("");
+    setClustersMax("");
+    setAnomaliesMin("");
+    setAnomaliesMax("");
+    setStatusFilter("all");
+    setSubsetFilter("");
+  };
+  const startedFromTime = dateFilterValue(startedFrom);
+  const startedToTime = dateFilterValue(startedTo);
+  const finishedFromTime = dateFilterValue(finishedFrom);
+  const finishedToTime = dateFilterValue(finishedTo);
 
   const filtered = runs
     .filter((r) => {
-      if (search && !r.id.toLowerCase().includes(search.toLowerCase()) && !r.subset.toLowerCase().includes(search.toLowerCase())) return false;
+      if (!matchesText(r.id, idFilter)) return false;
+      if (!matchesDateRange(r.startedAtRaw, startedFromTime, startedToTime)) return false;
+      if (!matchesDateRange(r.finishedAtRaw, finishedFromTime, finishedToTime)) return false;
+      if (!matchesNumberRange(r.durationSeconds, durationMin, durationMax)) return false;
       if (algoFilter !== "all" && r.algorithm !== algoFilter) return false;
+      if (!matchesNumberRange(r.clusters, clustersMin, clustersMax)) return false;
+      if (!matchesNumberRange(r.anomalies, anomaliesMin, anomaliesMax)) return false;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (!matchesText(r.subset, subsetFilter)) return false;
       return true;
     })
     .sort((a, b) => {
       let cmp = 0;
       if (sortField === "id") cmp = a.id.localeCompare(b.id);
-      else if (sortField === "startedAt") cmp = a.startedAt.localeCompare(b.startedAt);
+      else if (sortField === "startedAt") cmp = a.startedAtRaw.localeCompare(b.startedAtRaw);
       else if (sortField === "algorithm") cmp = a.algorithm.localeCompare(b.algorithm);
       else if (sortField === "status") cmp = a.status.localeCompare(b.status);
       return sortDir === "asc" ? cmp : -cmp;
@@ -64,10 +149,31 @@ export function ClusterHistoryPage() {
           <span className="text-[13px]" style={{ fontWeight: 500 }}>Составной фильтр</span>
           {hasFilters && <button onClick={resetFilters} className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><X className="w-3 h-3" />Сбросить</button>}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <TextInput placeholder="Поиск по ID или подмножеству" size="l" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
-          <Select value={[algoFilter]} onUpdate={(v) => setAlgoFilter(v[0])} options={[{ value: "all", content: "Все алгоритмы" }, { value: "K-Means", content: "K-Means" }, { value: "DBSCAN", content: "DBSCAN" }]} size="m" />
-          <Select value={[statusFilter]} onUpdate={(v) => setStatusFilter(v[0])} options={[{ value: "all", content: "Все статусы" }, { value: "success", content: "Завершено" }, { value: "running", content: "Выполняется" }, { value: "error", content: "Ошибка" }]} size="m" />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <TextInput placeholder="ID запуска" size="l" value={idFilter} onUpdate={setIdFilter} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+            <DateTimeIsoInput label="Начало от" value={startedFrom} onUpdate={setStartedFrom} />
+            <DateTimeIsoInput label="Начало до" value={startedTo} onUpdate={setStartedTo} />
+          </div>
+          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+            <DateTimeIsoInput label="Конец от" value={finishedFrom} onUpdate={setFinishedFrom} />
+            <DateTimeIsoInput label="Конец до" value={finishedTo} onUpdate={setFinishedTo} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Длит. от, сек" value={durationMin} onChange={(event) => setDurationMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Длит. до, сек" value={durationMax} onChange={(event) => setDurationMax(event.target.value)} />
+          </div>
+          <Select value={[algoFilter]} onUpdate={(v) => setAlgoFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все алгоритмы" }, { value: "K-Means", content: "K-Means" }, { value: "DBSCAN", content: "DBSCAN" }]} size="m" />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Кластеров от" value={clustersMin} onChange={(event) => setClustersMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Кластеров до" value={clustersMax} onChange={(event) => setClustersMax(event.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Аномалий от" value={anomaliesMin} onChange={(event) => setAnomaliesMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Аномалий до" value={anomaliesMax} onChange={(event) => setAnomaliesMax(event.target.value)} />
+          </div>
+          <Select value={[statusFilter]} onUpdate={(v) => setStatusFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все статусы" }, { value: "success", content: "Завершено" }, { value: "running", content: "Выполняется" }, { value: "error", content: "Ошибка" }]} size="m" />
+          <TextInput placeholder="Подмножество" size="l" value={subsetFilter} onUpdate={setSubsetFilter} />
         </div>
       </div>
 

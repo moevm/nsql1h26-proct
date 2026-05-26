@@ -1,7 +1,10 @@
 export type ClusterRunHistoryRow = {
   id: string;
+  startedAtRaw: string;
   startedAt: string;
+  finishedAtRaw: string;
   finishedAt: string;
+  durationSeconds: number;
   duration: string;
   algorithm: "K-Means" | "DBSCAN";
   clusters: number;
