@@ -1,3 +1,5 @@
+import type { AnyRecord } from "../../types";
+
 export type UploadBatch = {
   id: string;
   uploadId: string;
@@ -15,12 +17,14 @@ export type UploadBatch = {
 
 export type ProcessingLogRow = {
   id: number;
+  timestampRaw: string;
   time: string;
   level: "info" | "warn" | "error";
   file: string;
   line: number;
   entityType: "student" | "moodle" | "camera";
   message: string;
+  raw: AnyRecord;
 };
 
 export type ProblemRow = {

@@ -103,11 +103,13 @@ export function mapUploadLogEntry(row: AnyRecord, index: number): ProcessingLogR
   const timestamp = row.timestamp ?? row.time ?? row.createdAt;
   return {
     id: index + 1,
-    time: timestamp ? new Date(String(timestamp)).toLocaleTimeString("ru-RU") : "—",
+    timestampRaw: timestamp ? String(timestamp) : "",
+    time: timestamp ? new Date(String(timestamp)).toLocaleString("ru-RU") : "—",
     level: level === "error" ? "error" : level === "warn" || level === "warning" ? "warn" : "info",
     file: String(row.file ?? row.filename ?? row.sourceFileKey ?? row.source ?? "system"),
     line: Number(row.line ?? row.row ?? 0),
     entityType: kind.includes("ocr") || kind.includes("camera") ? "camera" : kind.includes("moodle") ? "moodle" : "student",
     message: String(row.message ?? row.error ?? row.status ?? "Запись обработана"),
+    raw: row,
   };
 }

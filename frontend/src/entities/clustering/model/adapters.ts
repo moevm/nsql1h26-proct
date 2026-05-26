@@ -7,7 +7,7 @@ export function mapRunToHistoryRow(row: AnyRecord): ClusterRunHistoryRow {
   const status = String(row.status ?? "done");
   const algorithm = String(row.algorithm ?? "kmeans") === "dbscan" ? "DBSCAN" : "K-Means";
   const results = (row.results ?? {}) as AnyRecord;
-  const filters = (row.filters ?? {}) as AnyRecord;
+  const filters = (row.filters ?? row.filter ?? {}) as AnyRecord;
   const startedAtRaw = String(row.startedAt ?? "");
   const finishedAtRaw = String(row.finishedAt ?? "");
   const startedAtTime = new Date(startedAtRaw).getTime();
