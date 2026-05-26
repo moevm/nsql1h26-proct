@@ -25,16 +25,21 @@ function statusPriority(status: UploadBatch["status"]) {
 export function mapUploadToBatch(row: AnyRecord): UploadBatch {
   const fileTypes = uploadFileTypes(row);
   const summary = (row.summary ?? {}) as AnyRecord;
+  const rowsCount = Number(row.totalRows ?? summary.totalRows ?? summary.rows ?? 0);
+  const studentsCount = Number(row.matchedStudents ?? summary.students ?? summary.studentCount ?? 0);
   return {
     id: String(row.importBatchId ?? row._id ?? ""),
     uploadId: String(row._id ?? ""),
+    createdAt: String(row.createdAt ?? ""),
     date: formatDate(row.createdAt),
     author: String(row.createdByName ?? row.createdBy ?? "Система"),
     files: Number((row.filesCount ?? fileTypes.length) || 1),
     fileTypes: fileTypes.join(", ") || "Не указан",
     status: uploadStatus(row),
-    rows: formatNumber(row.totalRows ?? summary.totalRows ?? summary.rows ?? 0),
-    students: formatNumber(row.matchedStudents ?? summary.students ?? summary.studentCount ?? 0),
+    rowsCount,
+    rows: formatNumber(rowsCount),
+    studentsCount,
+    students: formatNumber(studentsCount),
   };
 }
 
@@ -79,12 +84,15 @@ export function mapUploadsToBatches(rows: AnyRecord[]): UploadBatch[] {
     .map((batch) => ({
       id: batch.id,
       uploadId: batch.uploadId,
+      createdAt: batch.createdAt,
       date: formatDate(batch.createdAt),
       author: batch.author,
       files: batch.files,
       fileTypes: [...batch.fileTypes].join(", ") || "Не указан",
       status: batch.status,
+      rowsCount: batch.rows,
       rows: formatNumber(batch.rows),
+      studentsCount: batch.students,
       students: formatNumber(batch.students),
     }));
 }
