@@ -43,6 +43,7 @@ export function AppRouter() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/backup" element={<BackupPage />} />
           <Route path="/users" element={<EntityPage name="users" />} />
+          <Route path="/users/:id" element={<EntityDetailsPage name="users" />} />
           <Route path="/universities" element={<EntityPage name="universities" />} />
           <Route path="/audit" element={<EntityPage name="audit" />} />
           <Route path="/settings" element={<div className="flex items-center justify-center h-64 text-muted-foreground">Settings page coming soon</div>} />

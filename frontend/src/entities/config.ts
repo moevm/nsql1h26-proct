@@ -12,19 +12,22 @@ export const entityConfigs: Record<string, EntityConfig> = {
   users: {
     title: "Пользователи",
     endpoint: "/users",
+    detailTitleKey: "fullName",
+    detailBackPath: "/users",
+    detailEditable: true,
     columns: [
       { key: "fullName", label: "ФИО" },
       { key: "email", label: "Email" },
       { key: "role", label: "Роль" },
-      { key: "createdAt", label: "Создан" },
+      { key: "createdAt", label: "Дата/время создания" },
     ],
     filters: [
       textFilter("fullName", "ФИО"),
       textFilter("email", "Email"),
       { key: "role", label: "Роль", type: "select", options: ["admin", "teacher"] },
-      dateTimeFilters("createdAt", "Дата создания"),
+      dateTimeFilters("createdAt", "Дата/время создания"),
     ],
-    createTemplate: { email: "", passwordHash: "", fullName: "", role: "teacher" },
+    createTemplate: { email: "", password: "", fullName: "", role: "teacher" },
   },
   universities: {
     title: "Вузы",

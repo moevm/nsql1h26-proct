@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { Document, ObjectId } from "mongodb";
 
 import { getCollection } from "../db/collections.js";
@@ -128,6 +129,13 @@ function objectIdKey(value: unknown) {
   return value instanceof ObjectId ? value.toHexString() : "";
 }
 
+function redactUser(item: Document) {
+  const safe = { ...item };
+  delete safe.password;
+  delete safe.passwordHash;
+  return safe;
+}
+
 async function enrichSessionItems(items: Document[]) {
   if (!items.length) return items;
 
@@ -211,6 +219,7 @@ async function enrichStudentItems(items: Document[]) {
 }
 
 async function enrichEntityItems(entity: EntityName, items: Document[]) {
+  if (entity === "users") return items.map(redactUser);
   if (entity === "students") return enrichStudentItems(items);
   if (entity === "sessions") return enrichSessionItems(items);
   if (entity === "timeline_events") return enrichTimelineEventItems(items);
@@ -305,6 +314,13 @@ export async function getSessionById(id: string, user: AuthUser) {
   return enriched ?? null;
 }
 
+export async function getUserById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id) || !canReadEntity("users", user)) return null;
+
+  const userRecord = await getCollection("users").findOne({ _id: new ObjectId(id) });
+  return userRecord ? redactUser(userRecord) : null;
+}
+
 export async function getStudentById(id: string, user: AuthUser) {
   if (!ObjectId.isValid(id)) return null;
 
@@ -352,6 +368,28 @@ function normalizeTimelineEventUpdate(body: Document) {
   return payload;
 }
 
+async function normalizeUserUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  const password = typeof payload.password === "string" ? payload.password.trim() : "";
+
+  delete payload.password;
+  delete payload.passwordHash;
+
+  if (payload.role !== undefined && !["admin", "teacher"].includes(String(payload.role))) {
+    delete payload.role;
+  }
+
+  for (const field of ["createdAt", "updateTime"]) {
+    if (payload[field]) payload[field] = new Date(String(payload[field]));
+  }
+
+  if (password) {
+    payload.passwordHash = await bcrypt.hash(password, 10);
+  }
+
+  return payload;
+}
+
 export async function updateSessionById(id: string, body: Document, user: AuthUser) {
   if (!ObjectId.isValid(id)) return null;
 
@@ -366,6 +404,16 @@ export async function updateSessionById(id: string, body: Document, user: AuthUs
 
   const [enriched] = await enrichSessionItems([result]);
   return enriched ?? null;
+}
+
+export async function updateUserById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id) || !canCreateEntity("users", user)) return null;
+
+  const payload = await normalizeUserUpdate(body);
+  payload.updateTime = new Date();
+
+  const result = await getCollection("users").findOneAndUpdate({ _id: new ObjectId(id) }, { $set: payload }, { returnDocument: "after" });
+  return result ? redactUser(result) : null;
 }
 
 export async function updateTimelineEventById(id: string, body: Document, user: AuthUser) {
@@ -387,6 +435,12 @@ export async function updateTimelineEventById(id: string, body: Document, user: 
 export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {
   const now = new Date();
   const payload = normalizeIncoming(body);
+  if (entity === "users") {
+    const password = typeof payload.password === "string" ? payload.password.trim() : "";
+    delete payload.password;
+    delete payload.passwordHash;
+    payload.passwordHash = await bcrypt.hash(password, 10);
+  }
   const result = await getCollection(entity).insertOne({
     ...payload,
     ...(entity === "uploads" ? { userId: new ObjectId(user._id) } : {}),
