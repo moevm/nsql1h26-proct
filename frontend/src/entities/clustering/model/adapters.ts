@@ -8,11 +8,21 @@ export function mapRunToHistoryRow(row: AnyRecord): ClusterRunHistoryRow {
   const algorithm = String(row.algorithm ?? "kmeans") === "dbscan" ? "DBSCAN" : "K-Means";
   const results = (row.results ?? {}) as AnyRecord;
   const filters = (row.filters ?? {}) as AnyRecord;
+  const startedAtRaw = String(row.startedAt ?? "");
+  const finishedAtRaw = String(row.finishedAt ?? "");
+  const startedAtTime = new Date(startedAtRaw).getTime();
+  const finishedAtTime = new Date(finishedAtRaw).getTime();
+  const durationSeconds = Number.isNaN(startedAtTime) || Number.isNaN(finishedAtTime)
+    ? 0
+    : Math.max(0, Math.round((finishedAtTime - startedAtTime) / 1000));
   return {
     id: String(row._id ?? ""),
-    startedAt: formatDate(row.startedAt),
-    finishedAt: formatDate(row.finishedAt),
-    duration: formatDuration(row.startedAt, row.finishedAt),
+    startedAtRaw,
+    startedAt: formatDate(startedAtRaw),
+    finishedAtRaw,
+    finishedAt: formatDate(finishedAtRaw),
+    durationSeconds,
+    duration: formatDuration(startedAtRaw, finishedAtRaw),
     algorithm,
     clusters: Number(results.clusterCount ?? 0),
     anomalies: Number(results.anomalyCount ?? 0),
