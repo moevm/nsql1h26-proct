@@ -4,43 +4,10 @@ import { History, Search, Filter, BarChart3, X, ChevronDown, ChevronUp, Trash2 }
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { runStatusLabels } from "../shared/config/ui";
-import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 
 type SortField = "id" | "startedAt" | "algorithm" | "status";
-
-function matchesText(value: string, filter: string) {
-  return !filter || value.toLowerCase().includes(filter.toLowerCase());
-}
-
-function numberFilterValue(value: string) {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function matchesNumberRange(value: number, min: string, max: string) {
-  const minValue = numberFilterValue(min);
-  const maxValue = numberFilterValue(max);
-  if (minValue !== undefined && value < minValue) return false;
-  if (maxValue !== undefined && value > maxValue) return false;
-  return true;
-}
-
-function dateFilterValue(value: string) {
-  if (!value.trim() || !isValidIsoDateTime(value)) return undefined;
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? undefined : parsed;
-}
-
-function matchesDateRange(rawValue: string, from?: number, to?: number) {
-  if (from === undefined && to === undefined) return true;
-  const time = new Date(rawValue).getTime();
-  if (Number.isNaN(time)) return false;
-  if (from !== undefined && time < from) return false;
-  if (to !== undefined && time > to) return false;
-  return true;
-}
 
 export function ClusterHistoryPage() {
   const navigate = useNavigate();
