@@ -14,16 +14,51 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useUploads } from "../entities/upload/model/hooks";
 import { uploadStatusLabels } from "../shared/config/ui";
 import { api } from "../shared/api/client";
+import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 
 type SortField = "id" | "date" | "author" | "status";
 type SortDir = "asc" | "desc";
 
+function matchesText(value: string, filter: string) {
+  return !filter || value.toLowerCase().includes(filter.toLowerCase());
+}
+
+function numberFilterValue(value: string) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function matchesNumberRange(value: number, min: string, max: string) {
+  const minValue = numberFilterValue(min);
+  const maxValue = numberFilterValue(max);
+  if (minValue !== undefined && value < minValue) return false;
+  if (maxValue !== undefined && value > maxValue) return false;
+  return true;
+}
+
+function dateFilterValue(value: string) {
+  if (!value.trim() || !isValidIsoDateTime(value)) return undefined;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 export function UploadHistoryPage() {
   const navigate = useNavigate();
   const { groupedBatches: batches, refetch } = useUploads(200);
-  const [search, setSearch] = useState("");
+  const [idFilter, setIdFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [authorFilter, setAuthorFilter] = useState("all");
+  const [fileTypesFilter, setFileTypesFilter] = useState("");
+  const [filesMin, setFilesMin] = useState("");
+  const [filesMax, setFilesMax] = useState("");
+  const [rowsMin, setRowsMin] = useState("");
+  const [rowsMax, setRowsMax] = useState("");
+  const [studentsMin, setStudentsMin] = useState("");
+  const [studentsMax, setStudentsMax] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -40,29 +75,62 @@ export function UploadHistoryPage() {
   };
 
   const authors = [...new Set(batches.map((b) => b.author))];
+  const dateFromTime = dateFilterValue(dateFrom);
+  const dateToTime = dateFilterValue(dateTo);
 
   const filtered = batches
     .filter((b) => {
-      if (search && !b.id.toLowerCase().includes(search.toLowerCase()) && !b.author.toLowerCase().includes(search.toLowerCase()) && !b.fileTypes.toLowerCase().includes(search.toLowerCase())) return false;
+      if (!matchesText(b.id, idFilter)) return false;
+      if (!matchesText(b.fileTypes, fileTypesFilter)) return false;
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
       if (authorFilter !== "all" && b.author !== authorFilter) return false;
+      if (!matchesNumberRange(b.files, filesMin, filesMax)) return false;
+      if (!matchesNumberRange(b.rowsCount, rowsMin, rowsMax)) return false;
+      if (!matchesNumberRange(b.studentsCount, studentsMin, studentsMax)) return false;
+      if (dateFromTime !== undefined || dateToTime !== undefined) {
+        const createdAtTime = new Date(b.createdAt).getTime();
+        if (Number.isNaN(createdAtTime)) return false;
+        if (dateFromTime !== undefined && createdAtTime < dateFromTime) return false;
+        if (dateToTime !== undefined && createdAtTime > dateToTime) return false;
+      }
       return true;
     })
     .sort((a, b) => {
       let cmp = 0;
       if (sortField === "id") cmp = a.id.localeCompare(b.id);
-      else if (sortField === "date") cmp = a.date.localeCompare(b.date);
+      else if (sortField === "date") cmp = a.createdAt.localeCompare(b.createdAt);
       else if (sortField === "author") cmp = a.author.localeCompare(b.author);
       else if (sortField === "status") cmp = a.status.localeCompare(b.status);
       return sortDir === "asc" ? cmp : -cmp;
     });
 
-  const hasFilters = search || statusFilter !== "all" || authorFilter !== "all";
+  const hasFilters =
+    idFilter ||
+    dateFrom ||
+    dateTo ||
+    statusFilter !== "all" ||
+    authorFilter !== "all" ||
+    fileTypesFilter ||
+    filesMin ||
+    filesMax ||
+    rowsMin ||
+    rowsMax ||
+    studentsMin ||
+    studentsMax;
 
   const resetFilters = () => {
-    setSearch("");
+    setIdFilter("");
+    setDateFrom("");
+    setDateTo("");
     setStatusFilter("all");
     setAuthorFilter("all");
+    setFileTypesFilter("");
+    setFilesMin("");
+    setFilesMax("");
+    setRowsMin("");
+    setRowsMax("");
+    setStudentsMin("");
+    setStudentsMax("");
   };
 
   const deleteBatch = async (id: string) => {
@@ -102,17 +170,21 @@ export function UploadHistoryPage() {
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <TextInput
-            placeholder="Поиск по ID, автору или типу файла"
+            placeholder="ID загрузки"
             size="l"
-            value={search}
-            onUpdate={setSearch}
+            value={idFilter}
+            onUpdate={setIdFilter}
             startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
           />
+          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+            <DateTimeIsoInput label="Дата от" value={dateFrom} onUpdate={setDateFrom} />
+            <DateTimeIsoInput label="Дата до" value={dateTo} onUpdate={setDateTo} />
+          </div>
           <Select
             value={[statusFilter]}
-            onUpdate={(v) => setStatusFilter(v[0])}
+            onUpdate={(v) => setStatusFilter(v[0] ?? "all")}
             options={[
               { value: "all", content: "Все статусы" },
               { value: "success", content: "Успешно" },
@@ -123,13 +195,31 @@ export function UploadHistoryPage() {
           />
           <Select
             value={[authorFilter]}
-            onUpdate={(v) => setAuthorFilter(v[0])}
+            onUpdate={(v) => setAuthorFilter(v[0] ?? "all")}
             options={[
               { value: "all", content: "Все авторы" },
               ...authors.map((a) => ({ value: a, content: a })),
             ]}
             size="l"
           />
+          <TextInput
+            placeholder="Типы файлов"
+            size="l"
+            value={fileTypesFilter}
+            onUpdate={setFileTypesFilter}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Файлов от" value={filesMin} onChange={(event) => setFilesMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Файлов до" value={filesMax} onChange={(event) => setFilesMax(event.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Строк от" value={rowsMin} onChange={(event) => setRowsMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Строк до" value={rowsMax} onChange={(event) => setRowsMax(event.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="w-full h-10" type="number" placeholder="Студентов от" value={studentsMin} onChange={(event) => setStudentsMin(event.target.value)} />
+            <input className="w-full h-10" type="number" placeholder="Студентов до" value={studentsMax} onChange={(event) => setStudentsMax(event.target.value)} />
+          </div>
         </div>
       </div>
 
@@ -171,7 +261,20 @@ export function UploadHistoryPage() {
                 </tr>
               ) : (
                 filtered.map((b) => (
-                  <tr key={b.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                  <tr
+                    key={b.id}
+                    className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/upload-history/${b.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      navigate(`/upload-history/${b.id}`);
+                    }}
+                    tabIndex={0}
+                    role="link"
+                    title="Открыть загрузку"
+                    aria-label="Открыть загрузку"
+                  >
                     <td className="py-3 pr-4 font-mono text-[12px]" style={{ fontWeight: 500 }}>{b.id}</td>
                     <td className="py-3 pr-4 text-muted-foreground font-mono text-[12px]">{b.date}</td>
                     <td className="py-3 pr-4">{b.author}</td>
@@ -190,14 +293,25 @@ export function UploadHistoryPage() {
                           view="outlined"
                           size="s"
                           className="text-[12px] h-7"
-                          onClick={() => navigate(`/upload-history/${b.id}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/upload-history/${b.id}`);
+                          }}
                         >
                           <span className="flex items-center gap-1">
                             <ScrollText className="w-3 h-3" />
                             Журнал
                           </span>
                         </Button>
-                        <Button view="outlined" size="s" className="text-[12px] h-7 text-destructive" onClick={() => void deleteBatch(b.id)}>
+                        <Button
+                          view="outlined"
+                          size="s"
+                          className="text-[12px] h-7 text-destructive"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteBatch(b.id);
+                          }}
+                        >
                           <span className="flex items-center gap-1">
                             <Trash2 className="w-3 h-3" />
                             Удалить

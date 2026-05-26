@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { api } from "../shared/api/client";
-import type { AnyRecord } from "../entities/types";
+import { printable, type AnyRecord } from "../entities/types";
 
 interface LogEntry {
   id: number;
@@ -55,6 +55,35 @@ function normalizeEntity(value: unknown): LogEntry["entityType"] {
   if (raw.includes("student")) return "student";
   if (raw.includes("ocr") || raw.includes("camera")) return "camera";
   return "moodle";
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function JsonValue({ value }: { value: unknown }) {
+  if (Array.isArray(value)) {
+    return (
+      <pre className="bg-muted rounded-lg p-3 text-[12px] overflow-auto">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
+  }
+
+  if (isPlainObject(value)) {
+    return (
+      <div className="space-y-2">
+        {Object.entries(value).map(([key, nestedValue]) => (
+          <div className="border border-border rounded-lg p-3" key={key}>
+            <div className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 600 }}>{key}</div>
+            <JsonValue value={nestedValue} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <span className="break-all">{printable(value) || "—"}</span>;
 }
 
 export function UploadLogPage() {
@@ -183,6 +212,25 @@ export function UploadLogPage() {
           </button>
         ))}
       </div>
+
+      {upload && (
+        <section className="bg-card rounded-xl border border-border p-5 space-y-4">
+          <div>
+            <h2 className="text-[18px]" style={{ fontWeight: 600 }}>Атрибуты загрузки</h2>
+            <p className="text-muted-foreground text-[13px] mt-1">Все поля записи загрузки из БД</p>
+          </div>
+          <div className="columns-1 lg:columns-2 gap-3">
+            {Object.entries(upload).map(([key, value]) => (
+              <div className="break-inside-avoid border border-border rounded-xl p-4 space-y-2 mb-3" key={key}>
+                <div className="text-[12px] text-muted-foreground" style={{ fontWeight: 600 }}>{key}</div>
+                <div className="text-[13px]">
+                  <JsonValue value={value} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {activeTab === "log" && (
         <>

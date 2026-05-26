@@ -1,12 +1,15 @@
 export type UploadBatch = {
   id: string;
   uploadId: string;
+  createdAt: string;
   date: string;
   author: string;
   files: number;
   fileTypes: string;
   status: "success" | "warning" | "error";
+  rowsCount: number;
   rows: string;
+  studentsCount: number;
   students: string;
 };
 
