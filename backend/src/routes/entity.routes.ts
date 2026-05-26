@@ -3,7 +3,7 @@ import type { Document } from "mongodb";
 
 import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
-import { canCreateEntity, canReadEntity, createEntity, getSessionById, getStudentById, getTimelineEventById, listEntities, updateSessionById, updateTimelineEventById } from "../queries/entity.queries.js";
+import { canCreateEntity, canReadEntity, createEntity, getSessionById, getStudentById, getTimelineEventById, getUserById, listEntities, updateSessionById, updateTimelineEventById, updateUserById } from "../queries/entity.queries.js";
 import { entityNames } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { serializeDocument } from "../utils/query.js";
@@ -27,6 +27,48 @@ for (const entity of entityNames) {
       res.json({ items: serializeDocument(items), total, page, limit });
     }),
   );
+
+  if (entity === "users") {
+    entityRouter.get(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canReadEntity("users", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const userRecord = await getUserById(String(req.params.id ?? ""), user);
+        if (!userRecord) {
+          res.status(404).json({ message: "Пользователь не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(userRecord));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("users", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const userRecord = await updateUserById(String(req.params.id ?? ""), req.body as Document, user);
+        if (!userRecord) {
+          res.status(404).json({ message: "Пользователь не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(userRecord));
+      }),
+    );
+  }
 
   if (entity === "sessions") {
     entityRouter.get(
@@ -145,7 +187,13 @@ for (const entity of entityNames) {
           return;
         }
 
-        const insertedId = await createEntity(entity, req.body as Document, user);
+        const body = req.body as Document;
+        if (entity === "users" && (typeof body.password !== "string" || !body.password.trim())) {
+          res.status(400).json({ message: "Пароль обязателен" });
+          return;
+        }
+
+        const insertedId = await createEntity(entity, body, user);
         res.status(201).json({ _id: insertedId });
       }),
     );
