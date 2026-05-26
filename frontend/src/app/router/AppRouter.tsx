@@ -27,6 +27,7 @@ export function AppRouter() {
           <Route path="/upload-history/:id" element={<UploadLogPage />} />
           <Route path="/uploads/:uploadId/log" element={<UploadLogPage />} />
           <Route path="/students" element={<EntityPage name="students" />} />
+          <Route path="/students/:id" element={<EntityDetailsPage name="students" />} />
           <Route path="/sessions" element={<EntityPage name="sessions" />} />
           <Route path="/sessions/:id" element={<EntityDetailsPage name="sessions" />} />
           <Route path="/events" element={<EntityPage name="events" />} />

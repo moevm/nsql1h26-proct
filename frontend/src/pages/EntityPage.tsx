@@ -9,7 +9,7 @@ export function EntityPage({ name }: { name: keyof typeof entityConfigs }) {
   function rowLink(row: AnyRecord) {
     if (name === "uploads") return `/uploads/${row._id}/log`;
     if (name === "runs") return `/results/${row._id}`;
-    if (name === "students") return `/sessions?studentId=${row._id}`;
+    if (name === "students") return `/students/${row._id}`;
     if (name === "sessions") return `/sessions/${row._id}`;
     if (name === "events") return `/events/${row._id}`;
     return undefined;

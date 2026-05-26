@@ -2,3 +2,7 @@
 *.log
 node_modules/
 dist/
+wiki/
+demo_csv/
+*.json
+TUTOR.md
