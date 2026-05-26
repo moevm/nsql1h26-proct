@@ -14,35 +14,11 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useUploads } from "../entities/upload/model/hooks";
 import { uploadStatusLabels } from "../shared/config/ui";
 import { api } from "../shared/api/client";
-import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 
 type SortField = "id" | "date" | "author" | "status";
 type SortDir = "asc" | "desc";
-
-function matchesText(value: string, filter: string) {
-  return !filter || value.toLowerCase().includes(filter.toLowerCase());
-}
-
-function numberFilterValue(value: string) {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function matchesNumberRange(value: number, min: string, max: string) {
-  const minValue = numberFilterValue(min);
-  const maxValue = numberFilterValue(max);
-  if (minValue !== undefined && value < minValue) return false;
-  if (maxValue !== undefined && value > maxValue) return false;
-  return true;
-}
-
-function dateFilterValue(value: string) {
-  if (!value.trim() || !isValidIsoDateTime(value)) return undefined;
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? undefined : parsed;
-}
 
 export function UploadHistoryPage() {
   const navigate = useNavigate();
@@ -87,12 +63,7 @@ export function UploadHistoryPage() {
       if (!matchesNumberRange(b.files, filesMin, filesMax)) return false;
       if (!matchesNumberRange(b.rowsCount, rowsMin, rowsMax)) return false;
       if (!matchesNumberRange(b.studentsCount, studentsMin, studentsMax)) return false;
-      if (dateFromTime !== undefined || dateToTime !== undefined) {
-        const createdAtTime = new Date(b.createdAt).getTime();
-        if (Number.isNaN(createdAtTime)) return false;
-        if (dateFromTime !== undefined && createdAtTime < dateFromTime) return false;
-        if (dateToTime !== undefined && createdAtTime > dateToTime) return false;
-      }
+      if (!matchesDateRange(b.createdAt, dateFromTime, dateToTime)) return false;
       return true;
     })
     .sort((a, b) => {
