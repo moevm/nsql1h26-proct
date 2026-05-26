@@ -218,6 +218,8 @@ export const entityConfigs: Record<string, EntityConfig> = {
   audit: {
     title: "Аудит действий",
     endpoint: "/audit-logs",
+    detailTitleKey: "action",
+    detailBackPath: "/audit",
     columns: [
       { key: "actorType", label: "Субъект" },
       { key: "action", label: "Действие" },

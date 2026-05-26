@@ -321,6 +321,12 @@ export async function getUserById(id: string, user: AuthUser) {
   return userRecord ? redactUser(userRecord) : null;
 }
 
+export async function getAuditLogById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id) || !canReadEntity("audit_logs", user)) return null;
+
+  return getCollection("audit_logs").findOne({ _id: new ObjectId(id) });
+}
+
 export async function getStudentById(id: string, user: AuthUser) {
   if (!ObjectId.isValid(id)) return null;
 
