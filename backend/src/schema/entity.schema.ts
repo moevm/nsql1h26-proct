@@ -97,7 +97,7 @@ export const entityConfig: Record<EntityName, EntityFilterConfig> = {
     text: ["actorType", "action", "entityType", "ip", "userAgent"],
     dates: ["occurredAt"],
     numbers: [],
-    exact: ["actorType", "action", "entityType"],
+    exact: ["actorType", "entityType"],
     objectIds: ["actorUserId"],
     defaultSort: { occurredAt: -1 },
   },

@@ -13,6 +13,7 @@ export function EntityPage({ name }: { name: keyof typeof entityConfigs }) {
     if (name === "sessions") return `/sessions/${row._id}`;
     if (name === "events") return `/events/${row._id}`;
     if (name === "users") return `/users/${row._id}`;
+    if (name === "audit") return `/audit/${row._id}`;
     return undefined;
   }
 
