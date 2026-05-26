@@ -3,7 +3,7 @@ import type { Document } from "mongodb";
 
 import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
-import { canCreateEntity, canReadEntity, createEntity, getSessionById, getTimelineEventById, listEntities, updateSessionById, updateTimelineEventById } from "../queries/entity.queries.js";
+import { canCreateEntity, canReadEntity, createEntity, getSessionById, getStudentById, getTimelineEventById, listEntities, updateSessionById, updateTimelineEventById } from "../queries/entity.queries.js";
 import { entityNames } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { serializeDocument } from "../utils/query.js";
@@ -66,6 +66,28 @@ for (const entity of entityNames) {
         }
 
         res.json(serializeDocument(session));
+      }),
+    );
+  }
+
+  if (entity === "students") {
+    entityRouter.get(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canReadEntity("students", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const student = await getStudentById(String(req.params.id ?? ""), user);
+        if (!student) {
+          res.status(404).json({ message: "Студент не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(student));
       }),
     );
   }

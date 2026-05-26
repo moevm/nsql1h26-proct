@@ -190,7 +190,28 @@ async function enrichTimelineEventItems(items: Document[]) {
   }));
 }
 
+async function enrichStudentItems(items: Document[]) {
+  if (!items.length) return items;
+
+  const studentIds = uniqueObjectIds(items.map((item) => item._id));
+  const sessionCounts = studentIds.length
+    ? await getCollection("sessions")
+        .aggregate<{ _id: ObjectId; sessionCount: number }>([
+          { $match: { studentId: { $in: studentIds } } },
+          { $group: { _id: "$studentId", sessionCount: { $sum: 1 } } },
+        ])
+        .toArray()
+    : [];
+  const countsByStudentId = new Map(sessionCounts.map((item) => [item._id.toHexString(), item.sessionCount]));
+
+  return items.map((item) => ({
+    ...item,
+    sessionCount: countsByStudentId.get(objectIdKey(item._id)) ?? 0,
+  }));
+}
+
 async function enrichEntityItems(entity: EntityName, items: Document[]) {
+  if (entity === "students") return enrichStudentItems(items);
   if (entity === "sessions") return enrichSessionItems(items);
   if (entity === "timeline_events") return enrichTimelineEventItems(items);
   return items;
@@ -212,6 +233,9 @@ export async function listEntities(entity: EntityName, query: QuerySource, user:
   const filter = buildFilter(entity, query);
   await applyRoleScope(entity, user, filter);
   await applyStudentLinkedFilters(entity, query, filter);
+  if (entity === "students") {
+    return listStudents(filter, query, page, limit);
+  }
   const collection = getCollection(entity);
   const [items, total] = await Promise.all([
     collection
@@ -225,6 +249,50 @@ export async function listEntities(entity: EntityName, query: QuerySource, user:
   return { items: await enrichEntityItems(entity, items), total, page, limit };
 }
 
+async function listStudents(filter: Document, query: QuerySource, page: number, limit: number) {
+  const sessionCountMin = getQuery(query, "sessionCountMin");
+  const sessionCountMax = getQuery(query, "sessionCountMax");
+  const sessionCountFilter: Document = {};
+  if (sessionCountMin) sessionCountFilter.$gte = Number(sessionCountMin);
+  if (sessionCountMax) sessionCountFilter.$lte = Number(sessionCountMax);
+
+  const pipeline: Document[] = [
+    { $match: filter },
+    {
+      $lookup: {
+        from: "sessions",
+        localField: "_id",
+        foreignField: "studentId",
+        as: "sessionsForCount",
+      },
+    },
+    { $addFields: { sessionCount: { $size: "$sessionsForCount" } } },
+    { $project: { sessionsForCount: 0 } },
+  ];
+
+  if (Object.keys(sessionCountFilter).length) {
+    pipeline.push({ $match: { sessionCount: sessionCountFilter } });
+  }
+
+  pipeline.push({
+    $facet: {
+      items: [{ $sort: entityConfig.students.defaultSort }, { $skip: (page - 1) * limit }, { $limit: limit }],
+      total: [{ $count: "value" }],
+    },
+  });
+
+  const [result] = await getCollection("students")
+    .aggregate<{ items: Document[]; total: Array<{ value: number }> }>(pipeline)
+    .toArray();
+
+  return {
+    items: result?.items ?? [],
+    total: result?.total[0]?.value ?? 0,
+    page,
+    limit,
+  };
+}
+
 export async function getSessionById(id: string, user: AuthUser) {
   if (!ObjectId.isValid(id)) return null;
 
@@ -234,6 +302,18 @@ export async function getSessionById(id: string, user: AuthUser) {
   if (!session) return null;
 
   const [enriched] = await enrichSessionItems([session]);
+  return enriched ?? null;
+}
+
+export async function getStudentById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("students", user, filter);
+  const student = await getCollection("students").findOne(filter);
+  if (!student) return null;
+
+  const [enriched] = await enrichStudentItems([student]);
   return enriched ?? null;
 }
 
