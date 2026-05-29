@@ -81,6 +81,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
     endpoint: "/students",
     detailTitleKey: "fullName",
     detailBackPath: "/students",
+    detailEditable: true,
     detailAdditionalNodes: (record) =>
       record._id
         ? createElement(
