@@ -168,7 +168,21 @@ export function ClusterHistoryPage() {
               {filtered.length === 0 ? (
                 <tr><td colSpan={10} className="py-12 text-center text-muted-foreground text-[13px]">По заданным условиям запусков не найдено</td></tr>
               ) : filtered.map((r) => (
-                <tr key={r.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                <tr
+                  key={r.id}
+                  className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/clustering-runs/${r.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    navigate(`/clustering-runs/${r.id}`);
+                  }}
+                  tabIndex={0}
+                  role="link"
+                  title="Открыть запуск кластеризации"
+                  aria-label="Открыть запуск кластеризации"
+                >
                   <td className="py-3 pr-4 font-mono text-[12px]" style={{ fontWeight: 500 }}>{r.id}</td>
                   <td className="py-3 pr-4 font-mono text-[12px] text-muted-foreground">{r.startedAt}</td>
                   <td className="py-3 pr-4 font-mono text-[12px] text-muted-foreground">{r.finishedAt}</td>
@@ -181,7 +195,15 @@ export function ClusterHistoryPage() {
                   <td className="py-3">
                     <div className="flex flex-row items-center gap-2">
                       {r.status === "success" && (
-                        <Button view="outlined" size="s" className="text-[12px] h-7" onClick={() => navigate(`/results/${r.id}`)}>
+                        <Button
+                          view="outlined"
+                          size="s"
+                          className="text-[12px] h-7"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/results/${r.id}`);
+                          }}
+                        >
                           <span className="flex flex-row items-center gap-1"><BarChart3 className="w-3 h-3" />Результаты</span>
                         </Button>
                       )}
@@ -189,7 +211,8 @@ export function ClusterHistoryPage() {
                         view="outlined"
                         size="s"
                         className="text-[12px] h-7 text-destructive"
-                        onClick={() => {
+                        onClick={(event) => {
+                          event.stopPropagation();
                           if (window.confirm("Удалить этот запуск кластеризации?")) void deleteRun(r.id);
                         }}
                       >

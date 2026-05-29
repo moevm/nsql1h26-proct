@@ -32,6 +32,9 @@ export const entityConfigs: Record<string, EntityConfig> = {
   universities: {
     title: "Вузы",
     endpoint: "/universities",
+    detailTitleKey: "name",
+    detailBackPath: "/universities",
+    detailEditable: true,
     columns: [
       { key: "name", label: "Название" },
       { key: "shortName", label: "Кратко" },
@@ -43,6 +46,17 @@ export const entityConfigs: Record<string, EntityConfig> = {
   uploads: {
     title: "История загрузок",
     endpoint: "/uploads",
+    detailTitleKey: "_id",
+    detailBackPath: "/upload-history",
+    detailEditable: true,
+    detailAdditionalNodes: (record) =>
+      record._id
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/uploads/${record._id}/log` },
+            "Журнал загрузки",
+          )
+        : null,
     columns: [
       { key: "_id", label: "ID" },
       { key: "importBatchId", label: "Пачка" },
@@ -198,6 +212,17 @@ export const entityConfigs: Record<string, EntityConfig> = {
   runs: {
     title: "История запусков кластеризации",
     endpoint: "/clustering-runs",
+    detailTitleKey: "algorithm",
+    detailBackPath: "/clustering-runs",
+    detailEditable: true,
+    detailAdditionalNodes: (record) =>
+      record._id
+        ? createElement(
+            Link,
+            { className: "button button_secondary", to: `/results/${record._id}` },
+            "Результат",
+          )
+        : null,
     columns: [
       { key: "_id", label: "ID" },
       { key: "algorithm", label: "Алгоритм" },
@@ -221,15 +246,25 @@ export const entityConfigs: Record<string, EntityConfig> = {
     detailTitleKey: "action",
     detailBackPath: "/audit",
     columns: [
+      { key: "_id", label: "ID" },
+      { key: "actorUserId", label: "ID пользователя" },
       { key: "actorType", label: "Субъект" },
       { key: "action", label: "Действие" },
       { key: "entityType", label: "Сущность" },
+      { key: "entityId", label: "ID сущности" },
       { key: "occurredAt", label: "Время" },
+      { key: "ip", label: "IP" },
+      { key: "userAgent", label: "User-Agent" },
     ],
     filters: [
+      textFilter("_id", "ID записи"),
+      textFilter("actorUserId", "ID пользователя"),
       { key: "actorType", label: "Тип субъекта", type: "select", options: ["user", "system"] },
       textFilter("action", "Действие"),
       textFilter("entityType", "Сущность"),
+      textFilter("entityId", "ID сущности"),
+      textFilter("ip", "IP"),
+      textFilter("userAgent", "User-Agent"),
       dateTimeFilters("occurredAt", "Время"),
     ],
     createTemplate: {},

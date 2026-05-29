@@ -235,11 +235,12 @@ export function UploadHistoryPage() {
                   <tr
                     key={b.id}
                     className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/upload-history/${b.id}`)}
+                    onClick={() => navigate(`/uploads/${b.uploadId}`)}
                     onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      navigate(`/upload-history/${b.id}`);
+                      navigate(`/uploads/${b.uploadId}`);
                     }}
                     tabIndex={0}
                     role="link"
@@ -266,7 +267,7 @@ export function UploadHistoryPage() {
                           className="text-[12px] h-7"
                           onClick={(event) => {
                             event.stopPropagation();
-                            navigate(`/upload-history/${b.id}`);
+                            navigate(`/uploads/${b.uploadId}/log`);
                           }}
                         >
                           <span className="flex items-center gap-1">
