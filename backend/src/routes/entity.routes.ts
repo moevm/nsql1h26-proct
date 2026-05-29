@@ -18,6 +18,7 @@ import {
   listEntities,
   updateClusteringRunById,
   updateSessionById,
+  updateStudentById,
   updateTimelineEventById,
   updateUniversityById,
   updateUploadById,
@@ -249,6 +250,26 @@ for (const entity of entityNames) {
         }
 
         const student = await getStudentById(String(req.params.id ?? ""), user);
+        if (!student) {
+          res.status(404).json({ message: "Студент не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(student));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("students", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const student = await updateStudentById(String(req.params.id ?? ""), req.body as Document, user);
         if (!student) {
           res.status(404).json({ message: "Студент не найден" });
           return;

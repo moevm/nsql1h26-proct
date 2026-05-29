@@ -18,7 +18,9 @@ export function BackupPage() {
     setImportStatus(null);
     try {
       const payload = JSON.parse(await file.text()) as Record<string, unknown[]>;
-      await api("/backup/import", { method: "POST", body: JSON.stringify(payload) });
+      const formData = new FormData();
+      formData.append("file", file);
+      await api("/backup/import", { method: "POST", body: formData });
       setImportStatus("Бэкап импортирован");
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Не удалось импортировать бэкап");

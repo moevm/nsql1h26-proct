@@ -6,6 +6,8 @@ import { entityConfig, type EntityName } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { getQuery, normalizeIncoming, setNested, type QuerySource } from "../utils/query.js";
 
+type IdValue = ObjectId | string;
+
 function parseDateFilterValue(value: string, boundary: "from" | "to") {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
@@ -19,6 +21,18 @@ function parseDateFilterValue(value: string, boundary: "from" | "to") {
   }
 
   return parsed;
+}
+
+function idVariants(value: unknown): IdValue[] {
+  if (value instanceof ObjectId) return [value, value.toHexString()];
+  if (typeof value === "string" && ObjectId.isValid(value)) return [new ObjectId(value), value];
+  return [];
+}
+
+function idFilter(value: unknown): Document | undefined {
+  const variants = idVariants(value);
+  if (!variants.length) return undefined;
+  return { $in: variants };
 }
 
 export function buildFilter(entity: EntityName, query: QuerySource): Document {
@@ -37,7 +51,7 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
 
   for (const field of config.objectIds) {
     const value = getQuery(query, field);
-    if (value && ObjectId.isValid(value)) setNested(filter, field, new ObjectId(value));
+    if (value && ObjectId.isValid(value)) setNested(filter, field, { $in: idVariants(value) });
   }
 
   for (const field of config.dates) {
@@ -65,18 +79,23 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
   return filter;
 }
 
-function andObjectIdIn(filter: Document, field: string, ids: ObjectId[]) {
+function andObjectIdIn(filter: Document, field: string, ids: IdValue[]) {
   if (ids.length === 0) {
     setNested(filter, field, { $in: [] });
     return;
   }
 
+  const variants = ids.flatMap(idVariants);
   const existing = field.split(".").reduce<unknown>((current, part) => (current && typeof current === "object" ? (current as Document)[part] : undefined), filter);
   if (existing instanceof ObjectId) {
-    setNested(filter, field, ids.some((id) => id.equals(existing)) ? existing : { $in: [] });
+    setNested(filter, field, variants.some((id) => id instanceof ObjectId && id.equals(existing)) ? existing : { $in: [] });
     return;
   }
-  setNested(filter, field, { $in: ids });
+  if (typeof existing === "string") {
+    setNested(filter, field, variants.includes(existing) ? existing : { $in: [] });
+    return;
+  }
+  setNested(filter, field, { $in: variants });
 }
 
 async function applyStudentLinkedFilters(entity: EntityName, query: QuerySource, filter: Document) {
@@ -107,25 +126,28 @@ async function applyRoleScope(entity: EntityName, user: AuthUser, filter: Docume
   if (user.role === "admin") return;
 
   if (entity === "uploads" || entity === "clustering_runs") {
-    andObjectIdIn(filter, "userId", [new ObjectId(user._id)]);
+    andObjectIdIn(filter, "userId", idVariants(user._id));
     return;
   }
 
   if (entity === "students" || entity === "sessions" || entity === "timeline_events") {
-    const uploads = await getCollection("uploads").find({ userId: new ObjectId(user._id) }, { projection: { _id: 1 } }).toArray();
-    andObjectIdIn(filter, "uploadId", uploads.map((upload) => upload._id as ObjectId));
+    const uploads = await getCollection("uploads").find({ userId: { $in: idVariants(user._id) } }, { projection: { _id: 1 } }).toArray();
+    andObjectIdIn(filter, "uploadId", uploads.map((upload) => upload._id as IdValue));
   }
 }
 
 function uniqueObjectIds(values: unknown[]) {
-  const ids = new Map<string, ObjectId>();
+  const ids = new Map<string, IdValue>();
   for (const value of values) {
-    if (value instanceof ObjectId) ids.set(value.toHexString(), value);
+    for (const id of idVariants(value)) {
+      ids.set(`${typeof id}:${objectIdKey(id)}`, id);
+    }
   }
   return [...ids.values()];
 }
 
 function objectIdKey(value: unknown) {
+  if (typeof value === "string") return value;
   return value instanceof ObjectId ? value.toHexString() : "";
 }
 
@@ -145,7 +167,7 @@ async function enrichSessionItems(items: Document[]) {
     studentIds.length
       ? getCollection("students")
           .find(
-            { _id: { $in: studentIds } },
+            { _id: { $in: studentIds } } as Document,
             { projection: { fullName: 1, group: 1, program: 1, educationLevel: 1, faculty: 1 } },
           )
           .toArray()
@@ -153,7 +175,7 @@ async function enrichSessionItems(items: Document[]) {
     sessionIds.length
       ? getCollection("timeline_events")
           .find(
-            { sessionId: { $in: sessionIds }, "moodle.courseName": { $exists: true, $ne: "" } },
+            { sessionId: { $in: sessionIds }, "moodle.courseName": { $exists: true, $ne: "" } } as Document,
             { projection: { sessionId: 1, "moodle.courseName": 1 }, sort: { eventTime: 1 } },
           )
           .toArray()
@@ -184,7 +206,7 @@ async function enrichTimelineEventItems(items: Document[]) {
   const students = studentIds.length
     ? await getCollection("students")
         .find(
-          { _id: { $in: studentIds } },
+          { _id: { $in: studentIds } } as Document,
           { projection: { fullName: 1, group: 1, program: 1, educationLevel: 1, faculty: 1 } },
         )
         .toArray()
@@ -303,9 +325,10 @@ async function listStudents(filter: Document, query: QuerySource, page: number, 
 }
 
 export async function getSessionById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("sessions", user, filter);
   const session = await getCollection("sessions").findOne(filter);
   if (!session) return null;
@@ -315,22 +338,25 @@ export async function getSessionById(id: string, user: AuthUser) {
 }
 
 export async function getUserById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id) || !canReadEntity("users", user)) return null;
+  const lookup = idFilter(id);
+  if (!lookup || !canReadEntity("users", user)) return null;
 
-  const userRecord = await getCollection("users").findOne({ _id: new ObjectId(id) });
+  const userRecord = await getCollection("users").findOne({ _id: lookup });
   return userRecord ? redactUser(userRecord) : null;
 }
 
 export async function getAuditLogById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id) || !canReadEntity("audit_logs", user)) return null;
+  const lookup = idFilter(id);
+  if (!lookup || !canReadEntity("audit_logs", user)) return null;
 
-  return getCollection("audit_logs").findOne({ _id: new ObjectId(id) });
+  return getCollection("audit_logs").findOne({ _id: lookup });
 }
 
 export async function getStudentById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("students", user, filter);
   const student = await getCollection("students").findOne(filter);
   if (!student) return null;
@@ -340,9 +366,10 @@ export async function getStudentById(id: string, user: AuthUser) {
 }
 
 export async function getTimelineEventById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("timeline_events", user, filter);
   const event = await getCollection("timeline_events").findOne(filter);
   if (!event) return null;
@@ -352,23 +379,26 @@ export async function getTimelineEventById(id: string, user: AuthUser) {
 }
 
 export async function getUniversityById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id) || !canReadEntity("universities", user)) return null;
+  const lookup = idFilter(id);
+  if (!lookup || !canReadEntity("universities", user)) return null;
 
-  return getCollection("universities").findOne({ _id: new ObjectId(id) });
+  return getCollection("universities").findOne({ _id: lookup });
 }
 
 export async function getUploadById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("uploads", user, filter);
   return getCollection("uploads").findOne(filter);
 }
 
 export async function getClusteringRunById(id: string, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("clustering_runs", user, filter);
   return getCollection("clustering_runs").findOne(filter);
 }
@@ -401,6 +431,14 @@ function normalizeTimelineEventUpdate(body: Document) {
     if (payload[field]) payload[field] = new Date(String(payload[field]));
   }
 
+  return payload;
+}
+
+function normalizeStudentUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  delete payload.sessionCount;
+
+  normalizeDateFields(payload, ["createdAt", "updateTime"]);
   return payload;
 }
 
@@ -445,9 +483,10 @@ async function normalizeUserUpdate(body: Document) {
 }
 
 export async function updateSessionById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("sessions", user, filter);
 
   const payload = normalizeSessionUpdate(body);
@@ -461,19 +500,21 @@ export async function updateSessionById(id: string, body: Document, user: AuthUs
 }
 
 export async function updateUserById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id) || !canCreateEntity("users", user)) return null;
+  const lookup = idFilter(id);
+  if (!lookup || !canCreateEntity("users", user)) return null;
 
   const payload = await normalizeUserUpdate(body);
   payload.updateTime = new Date();
 
-  const result = await getCollection("users").findOneAndUpdate({ _id: new ObjectId(id) }, { $set: payload }, { returnDocument: "after" });
+  const result = await getCollection("users").findOneAndUpdate({ _id: lookup }, { $set: payload }, { returnDocument: "after" });
   return result ? redactUser(result) : null;
 }
 
 export async function updateTimelineEventById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("timeline_events", user, filter);
 
   const payload = normalizeTimelineEventUpdate(body);
@@ -486,19 +527,38 @@ export async function updateTimelineEventById(id: string, body: Document, user: 
   return enriched ?? null;
 }
 
+export async function updateStudentById(id: string, body: Document, user: AuthUser) {
+  const lookup = idFilter(id);
+  if (!lookup) return null;
+
+  const filter: Document = { _id: lookup };
+  await applyRoleScope("students", user, filter);
+
+  const payload = normalizeStudentUpdate(body);
+  payload.updateTime = new Date();
+
+  const result = await getCollection("students").findOneAndUpdate(filter, { $set: payload }, { returnDocument: "after" });
+  if (!result) return null;
+
+  const [enriched] = await enrichStudentItems([result]);
+  return enriched ?? null;
+}
+
 export async function updateUniversityById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id) || !canCreateEntity("universities", user)) return null;
+  const lookup = idFilter(id);
+  if (!lookup || !canCreateEntity("universities", user)) return null;
 
   const payload = normalizeUniversityUpdate(body);
   payload.updateTime = new Date();
 
-  return getCollection("universities").findOneAndUpdate({ _id: new ObjectId(id) }, { $set: payload }, { returnDocument: "after" });
+  return getCollection("universities").findOneAndUpdate({ _id: lookup }, { $set: payload }, { returnDocument: "after" });
 }
 
 export async function updateUploadById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("uploads", user, filter);
 
   const payload = normalizeUploadUpdate(body);
@@ -508,9 +568,10 @@ export async function updateUploadById(id: string, body: Document, user: AuthUse
 }
 
 export async function updateClusteringRunById(id: string, body: Document, user: AuthUser) {
-  if (!ObjectId.isValid(id)) return null;
+  const lookup = idFilter(id);
+  if (!lookup) return null;
 
-  const filter: Document = { _id: new ObjectId(id) };
+  const filter: Document = { _id: lookup };
   await applyRoleScope("clustering_runs", user, filter);
 
   const payload = normalizeClusteringRunUpdate(body);
