@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, AlertTriangle, Users, Download, Filter, Search, X } from "lucide-react";
+import { FileText, AlertTriangle, Users, Download, Filter, Search, X, BarChart3 } from "lucide-react";
 import { Button, Label, Select, TextInput } from "@gravity-ui/uikit";
 import { useStudentsSummary, useSessionsSummary } from "../entities/summary/model/hooks";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
@@ -50,7 +50,12 @@ export function ReportsPage() {
     setStatusFilter("all");
   }
 
-  function openRun(runId: string) {
+  function openRunDetails(runId: string) {
+    if (!runId) return;
+    navigate(`/clustering-runs/${runId}`);
+  }
+
+  function openRunResults(runId: string) {
     if (!runId) return;
     navigate(`/results/${runId}`);
   }
@@ -81,7 +86,7 @@ export function ReportsPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
             <div>
               <h3 className="text-[15px]" style={{ fontWeight: 600 }}>Запуски кластеризации из БД</h3>
-              <p className="text-[12px] text-muted-foreground mt-1">Клик по строке открывает результат выбранного запуска</p>
+              <p className="text-[12px] text-muted-foreground mt-1">Клик по строке открывает просмотр и редактирование отчёта; результаты доступны отдельной кнопкой</p>
             </div>
             <span className="text-[13px] text-muted-foreground">
               Найдено запусков: <span className="text-foreground" style={{ fontWeight: 500 }}>{filteredRuns.length}</span>
@@ -125,31 +130,48 @@ export function ReportsPage() {
 
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
-              <thead><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>ID запуска</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Дата</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Аномалий</th><th className="pb-3" style={{ fontWeight: 500 }}>Статус</th></tr></thead>
+              <thead><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>ID запуска</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Дата</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Аномалий</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Статус</th><th className="pb-3" style={{ fontWeight: 500 }}>Действия</th></tr></thead>
               <tbody>
                 {runs.length === 0 ? (
-                  <tr><td colSpan={4} className="py-10 text-center text-muted-foreground">В БД пока нет запусков кластеризации для экспорта аномалий.</td></tr>
+                  <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">В БД пока нет запусков кластеризации для экспорта аномалий.</td></tr>
                 ) : filteredRuns.length === 0 ? (
-                  <tr><td colSpan={4} className="py-10 text-center text-muted-foreground">По заданным условиям запусков не найдено.</td></tr>
+                  <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">По заданным условиям запусков не найдено.</td></tr>
                 ) : filteredRuns.map((run) => (
                   <tr
                     key={run.id}
                     className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    onClick={() => openRun(run.id)}
+                    onClick={() => openRunDetails(run.id)}
                     onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      openRun(run.id);
+                      openRunDetails(run.id);
                     }}
                     tabIndex={0}
                     role="link"
-                    title="Открыть результат запуска"
-                    aria-label="Открыть результат запуска"
+                    title="Открыть отчёт запуска"
+                    aria-label="Открыть отчёт запуска"
                   >
                     <td className="py-3 pr-4"><div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /><span className="text-[12px] font-mono" style={{ fontWeight: 500 }}>{run.id}</span></div></td>
                     <td className="py-3 pr-4 text-muted-foreground text-[12px] font-mono">{run.startedAt}</td>
                     <td className="py-3 pr-4 text-muted-foreground text-[12px]">{formatNumber(run.anomalies)}</td>
-                    <td className="py-3"><Label theme={run.status === "success" ? "success" : run.status === "running" ? "info" : "danger"}>{run.status}</Label></td>
+                    <td className="py-3 pr-4"><Label theme={run.status === "success" ? "success" : run.status === "running" ? "info" : "danger"}>{run.status}</Label></td>
+                    <td className="py-3">
+                      <Button
+                        view="outlined"
+                        size="s"
+                        className="text-[12px] h-7"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openRunResults(run.id);
+                        }}
+                      >
+                        <span className="flex items-center gap-1">
+                          <BarChart3 className="w-3 h-3" />
+                          Перейти к результатам
+                        </span>
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

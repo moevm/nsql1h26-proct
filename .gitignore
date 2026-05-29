@@ -5,4 +5,5 @@ dist/
 wiki/
 demo_csv/
 *.json
+!backend/src/fixtures/demo-data.json
 TUTOR.md
