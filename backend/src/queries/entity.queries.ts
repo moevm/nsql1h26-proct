@@ -351,6 +351,28 @@ export async function getTimelineEventById(id: string, user: AuthUser) {
   return enriched ?? null;
 }
 
+export async function getUniversityById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id) || !canReadEntity("universities", user)) return null;
+
+  return getCollection("universities").findOne({ _id: new ObjectId(id) });
+}
+
+export async function getUploadById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("uploads", user, filter);
+  return getCollection("uploads").findOne(filter);
+}
+
+export async function getClusteringRunById(id: string, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("clustering_runs", user, filter);
+  return getCollection("clustering_runs").findOne(filter);
+}
+
 function normalizeSessionUpdate(body: Document) {
   const payload = normalizeIncoming(body);
   delete payload.student;
@@ -363,6 +385,14 @@ function normalizeSessionUpdate(body: Document) {
   return payload;
 }
 
+function normalizeDateFields(payload: Document, fields: string[]) {
+  for (const field of fields) {
+    const value = field.split(".").reduce<unknown>((current, part) => (current && typeof current === "object" ? (current as Document)[part] : undefined), payload);
+    if (!value) continue;
+    setNested(payload, field, new Date(String(value)));
+  }
+}
+
 function normalizeTimelineEventUpdate(body: Document) {
   const payload = normalizeIncoming(body);
   delete payload.student;
@@ -371,6 +401,24 @@ function normalizeTimelineEventUpdate(body: Document) {
     if (payload[field]) payload[field] = new Date(String(payload[field]));
   }
 
+  return payload;
+}
+
+function normalizeUniversityUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  normalizeDateFields(payload, ["createdAt", "updateTime"]);
+  return payload;
+}
+
+function normalizeUploadUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  normalizeDateFields(payload, ["createdAt", "updateTime"]);
+  return payload;
+}
+
+function normalizeClusteringRunUpdate(body: Document) {
+  const payload = normalizeIncoming(body);
+  normalizeDateFields(payload, ["startedAt", "finishedAt", "createdAt", "updateTime", "filter.dateFrom", "filter.dateTo"]);
   return payload;
 }
 
@@ -436,6 +484,39 @@ export async function updateTimelineEventById(id: string, body: Document, user: 
 
   const [enriched] = await enrichTimelineEventItems([result]);
   return enriched ?? null;
+}
+
+export async function updateUniversityById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id) || !canCreateEntity("universities", user)) return null;
+
+  const payload = normalizeUniversityUpdate(body);
+  payload.updateTime = new Date();
+
+  return getCollection("universities").findOneAndUpdate({ _id: new ObjectId(id) }, { $set: payload }, { returnDocument: "after" });
+}
+
+export async function updateUploadById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("uploads", user, filter);
+
+  const payload = normalizeUploadUpdate(body);
+  payload.updateTime = new Date();
+
+  return getCollection("uploads").findOneAndUpdate(filter, { $set: payload }, { returnDocument: "after" });
+}
+
+export async function updateClusteringRunById(id: string, body: Document, user: AuthUser) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const filter: Document = { _id: new ObjectId(id) };
+  await applyRoleScope("clustering_runs", user, filter);
+
+  const payload = normalizeClusteringRunUpdate(body);
+  payload.updateTime = new Date();
+
+  return getCollection("clustering_runs").findOneAndUpdate(filter, { $set: payload }, { returnDocument: "after" });
 }
 
 export async function createEntity(entity: EntityName, body: Document, user: AuthUser) {

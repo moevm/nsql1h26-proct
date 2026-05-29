@@ -3,7 +3,26 @@ import type { Document } from "mongodb";
 
 import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
-import { canCreateEntity, canReadEntity, createEntity, getAuditLogById, getSessionById, getStudentById, getTimelineEventById, getUserById, listEntities, updateSessionById, updateTimelineEventById, updateUserById } from "../queries/entity.queries.js";
+import {
+  canCreateEntity,
+  canReadEntity,
+  createEntity,
+  getAuditLogById,
+  getClusteringRunById,
+  getSessionById,
+  getStudentById,
+  getTimelineEventById,
+  getUniversityById,
+  getUploadById,
+  getUserById,
+  listEntities,
+  updateClusteringRunById,
+  updateSessionById,
+  updateTimelineEventById,
+  updateUniversityById,
+  updateUploadById,
+  updateUserById,
+} from "../queries/entity.queries.js";
 import { entityNames } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { serializeDocument } from "../utils/query.js";
@@ -66,6 +85,90 @@ for (const entity of entityNames) {
         }
 
         res.json(serializeDocument(userRecord));
+      }),
+    );
+  }
+
+  if (entity === "universities") {
+    entityRouter.get(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canReadEntity("universities", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const university = await getUniversityById(String(req.params.id ?? ""), user);
+        if (!university) {
+          res.status(404).json({ message: "Вуз не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(university));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("universities", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const university = await updateUniversityById(String(req.params.id ?? ""), req.body as Document, user);
+        if (!university) {
+          res.status(404).json({ message: "Вуз не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(university));
+      }),
+    );
+  }
+
+  if (entity === "uploads") {
+    entityRouter.get(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canReadEntity("uploads", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const upload = await getUploadById(String(req.params.id ?? ""), user);
+        if (!upload) {
+          res.status(404).json({ message: "Загрузка не найдена" });
+          return;
+        }
+
+        res.json(serializeDocument(upload));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("uploads", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const upload = await updateUploadById(String(req.params.id ?? ""), req.body as Document, user);
+        if (!upload) {
+          res.status(404).json({ message: "Загрузка не найдена" });
+          return;
+        }
+
+        res.json(serializeDocument(upload));
       }),
     );
   }
@@ -194,6 +297,48 @@ for (const entity of entityNames) {
         }
 
         res.json(serializeDocument(event));
+      }),
+    );
+  }
+
+  if (entity === "clustering_runs") {
+    entityRouter.get(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canReadEntity("clustering_runs", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const run = await getClusteringRunById(String(req.params.id ?? ""), user);
+        if (!run) {
+          res.status(404).json({ message: "Запуск кластеризации не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(run));
+      }),
+    );
+
+    entityRouter.patch(
+      `${path}/:id`,
+      auth,
+      asyncHandler(async (req, res) => {
+        const user = res.locals.user as AuthUser;
+        if (!canCreateEntity("clustering_runs", user)) {
+          res.status(403).json({ message: "Недостаточно прав" });
+          return;
+        }
+
+        const run = await updateClusteringRunById(String(req.params.id ?? ""), req.body as Document, user);
+        if (!run) {
+          res.status(404).json({ message: "Запуск кластеризации не найден" });
+          return;
+        }
+
+        res.json(serializeDocument(run));
       }),
     );
   }

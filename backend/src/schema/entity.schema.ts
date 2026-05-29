@@ -94,11 +94,11 @@ export const entityConfig: Record<EntityName, EntityFilterConfig> = {
     defaultSort: { startedAt: -1 },
   },
   audit_logs: {
-    text: ["actorType", "action", "entityType", "ip", "userAgent"],
+    text: ["actorType", "action", "entityType", "entityId", "ip", "userAgent"],
     dates: ["occurredAt"],
     numbers: [],
     exact: ["actorType", "entityType"],
-    objectIds: ["actorUserId"],
+    objectIds: ["_id", "actorUserId", "entityId"],
     defaultSort: { occurredAt: -1 },
   },
 };
