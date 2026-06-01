@@ -10,4 +10,8 @@ export async function ensureIndexes() {
   await getCollection("sessions").createIndex({ uploadId: 1, startTime: -1 });
   await getCollection("sessions").createIndex({ importBatchId: 1, startTime: -1, examName: 1 });
   await getCollection("clustering_runs").createIndex({ status: 1, algorithm: 1, startedAt: -1 });
+  await getCollection("audit_logs").createIndex({ occurredAt: -1 });
+  await getCollection("audit_logs").createIndex({ actorUserId: 1, occurredAt: -1 });
+  await getCollection("audit_logs").createIndex({ entityType: 1, entityId: 1, occurredAt: -1 });
+  await getCollection("audit_logs").createIndex({ action: 1, occurredAt: -1 });
 }

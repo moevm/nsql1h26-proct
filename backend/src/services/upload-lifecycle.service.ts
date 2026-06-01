@@ -2,6 +2,7 @@ import { Document, ObjectId } from "mongodb";
 
 import { getCollection } from "../db/collections.js";
 import type { UnresolvedStudent } from "../schema/upload.schema.js";
+import { safeRecordAuditEvent, type AuditContext } from "./audit.service.js";
 
 export function deriveUploadFileCount(upload: Document) {
   const files = (upload.files ?? {}) as Record<string, unknown>;
@@ -39,9 +40,10 @@ type StatusChangeParams = {
   userId: ObjectId;
   reason: string;
   details?: Document;
+  auditContext?: AuditContext;
 };
 
-export async function recordUploadStatusChange({ uploadId, oldStatus, newStatus, userId, reason, details }: StatusChangeParams) {
+export async function recordUploadStatusChange({ uploadId, oldStatus, newStatus, userId, reason, details, auditContext }: StatusChangeParams) {
   if (oldStatus === newStatus) return;
 
   const now = new Date();
@@ -53,7 +55,8 @@ export async function recordUploadStatusChange({ uploadId, oldStatus, newStatus,
     reason,
   };
 
-  await getCollection("audit_logs").insertOne({
+  await safeRecordAuditEvent({
+    ...auditContext,
     actorUserId: userId,
     actorType: "user",
     action: "upload.status_change",
@@ -73,6 +76,7 @@ export async function transitionUploadsInScope(
   reason: string,
   extraSet: Document = {},
   extraPush: Document = {},
+  auditContext?: AuditContext,
 ) {
   const uploads = await getCollection("uploads").find(filter).toArray();
   for (const upload of uploads) {
@@ -84,6 +88,7 @@ export async function transitionUploadsInScope(
       newStatus,
       userId,
       reason,
+      auditContext,
     });
 
     const now = new Date();

@@ -4,6 +4,7 @@ import { Document, ObjectId } from "mongodb";
 import { getCollection } from "../db/collections.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import type { UnresolvedStudent } from "../schema/upload.schema.js";
+import { safeRecordAuditEvent, type AuditContext } from "./audit.service.js";
 import { recordUploadStatusChange, mergeUnresolvedStudents } from "./upload-lifecycle.service.js";
 import { persistUploadFile } from "./upload-storage.service.js";
 
@@ -153,6 +154,7 @@ async function createImportUpload(
   importBatchId: ObjectId,
   storagePath: string,
   originalName?: string,
+  auditContext?: AuditContext,
 ) {
   await getCollection("uploads").insertOne({
     _id: uploadId,
@@ -172,7 +174,8 @@ async function createImportUpload(
     unresolvedStudents: [],
     processingStartedAt: now,
   });
-  await getCollection("audit_logs").insertOne({
+  await safeRecordAuditEvent({
+    ...auditContext,
     actorUserId: new ObjectId(user._id),
     actorType: "user",
     action: "upload.import_start",
@@ -190,6 +193,7 @@ async function finishImportUpload(
   result: Omit<CsvImportResult, "uploadId" | "importBatchId" | "kind"> & { unresolvedStudents?: UnresolvedStudent[] },
   now: Date,
   userId: ObjectId,
+  auditContext?: AuditContext,
 ) {
   const current = await getCollection("uploads").findOne({ _id: uploadId });
   const newStatus = result.errorCount ? "done_with_warnings" : "done";
@@ -200,6 +204,7 @@ async function finishImportUpload(
     userId,
     reason: result.errorCount ? "CSV импорт завершен с предупреждениями" : "CSV импорт завершен",
     details: { kind, errorCount: result.errorCount },
+    auditContext,
   });
 
   const logEntries = result.errors.slice(0, 100).map((error) => ({
@@ -452,13 +457,18 @@ async function importEvents(kind: Extract<CsvImportKind, "moodle_events" | "ocr_
   return { insertedCount: documents.length, errors, unresolvedStudents: [...unresolvedMap.values()] };
 }
 
-export async function importCsv(kind: CsvImportKind, buffer: Buffer, user: AuthUser, options: { batchId?: string; originalName?: string } = {}): Promise<CsvImportResult> {
+export async function importCsv(
+  kind: CsvImportKind,
+  buffer: Buffer,
+  user: AuthUser,
+  options: { batchId?: string; originalName?: string; auditContext?: AuditContext } = {},
+): Promise<CsvImportResult> {
   const now = new Date();
   const rows = parseCsv(buffer);
   const uploadId = new ObjectId();
   const importBatchId = options.batchId && ObjectId.isValid(options.batchId) ? new ObjectId(options.batchId) : new ObjectId();
   const storagePath = await persistUploadFile(buffer, uploadId, kind, options.originalName);
-  await createImportUpload(kind, user, now, uploadId, importBatchId, storagePath, options.originalName);
+  await createImportUpload(kind, user, now, uploadId, importBatchId, storagePath, options.originalName, options.auditContext);
 
   const imported =
     kind === "students"
@@ -474,7 +484,7 @@ export async function importCsv(kind: CsvImportKind, buffer: Buffer, user: AuthU
     errors: imported.errors,
     unresolvedStudents: imported.unresolvedStudents,
   };
-  await finishImportUpload(uploadId, kind, summary, new Date(), new ObjectId(user._id));
+  await finishImportUpload(uploadId, kind, summary, new Date(), new ObjectId(user._id), options.auditContext);
 
   return { uploadId, importBatchId, kind, ...summary };
 }
