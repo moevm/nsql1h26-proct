@@ -43,15 +43,15 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
     const value = getQuery(query, field);
     if (!value) continue;
     if (config.exact.includes(field)) {
-      setNested(filter, field, value);
+      filter[field] = value;
     } else {
-      setNested(filter, field, { $regex: value, $options: "i" });
+      filter[field] = { $regex: value, $options: "i" };
     }
   }
 
   for (const field of config.objectIds) {
     const value = getQuery(query, field);
-    if (value && ObjectId.isValid(value)) setNested(filter, field, { $in: idVariants(value) });
+    if (value && ObjectId.isValid(value)) filter[field] = { $in: idVariants(value) };
   }
 
   for (const field of config.dates) {
@@ -63,7 +63,7 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
     const toDate = to ? parseDateFilterValue(to, "to") : undefined;
     if (fromDate) range.$gte = fromDate;
     if (toDate) range.$lte = toDate;
-    if (Object.keys(range).length) setNested(filter, field, range);
+    if (Object.keys(range).length) filter[field] = range;
   }
 
   for (const field of config.numbers) {
@@ -73,7 +73,7 @@ export function buildFilter(entity: EntityName, query: QuerySource): Document {
     const range: Document = {};
     if (min) range.$gte = Number(min);
     if (max) range.$lte = Number(max);
-    setNested(filter, field, range);
+    filter[field] = range;
   }
 
   return filter;
@@ -258,12 +258,17 @@ export function canCreateEntity(entity: EntityName, user: AuthUser) {
   return user.role === "admin";
 }
 
-export async function listEntities(entity: EntityName, query: QuerySource, user: AuthUser) {
-  const limit = Math.min(Number(getQuery(query, "limit") ?? 50), 200);
-  const page = Math.max(Number(getQuery(query, "page") ?? 1), 1);
+export async function buildEntityListFilter(entity: EntityName, query: QuerySource, user: AuthUser) {
   const filter = buildFilter(entity, query);
   await applyRoleScope(entity, user, filter);
   await applyStudentLinkedFilters(entity, query, filter);
+  return filter;
+}
+
+export async function listEntities(entity: EntityName, query: QuerySource, user: AuthUser) {
+  const limit = Math.min(Number(getQuery(query, "limit") ?? 50), 200);
+  const page = Math.max(Number(getQuery(query, "page") ?? 1), 1);
+  const filter = await buildEntityListFilter(entity, query, user);
   if (entity === "students") {
     return listStudents(filter, query, page, limit);
   }

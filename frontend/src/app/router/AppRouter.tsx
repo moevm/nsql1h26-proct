@@ -10,6 +10,7 @@ import { ProcessingLogDetailsPage } from "../../pages/ProcessingLogDetailsPage";
 import { ProcessingPage } from "../../pages/ProcessingPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { ResultsPage } from "../../pages/ResultsPage";
+import { StatisticsPage } from "../../pages/StatisticsPage";
 import { UploadLogPage } from "../../pages/UploadLogPage";
 import { UploadHistoryPage } from "../../pages/UploadHistoryPage";
 import { UploadsPage } from "../../pages/UploadsPage";
@@ -42,6 +43,7 @@ export function AppRouter() {
           <Route path="/cluster-history" element={<ClusterHistoryPage />} />
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/results/:runId" element={<ResultsPage />} />
+          <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/backup" element={<BackupPage />} />
           <Route path="/users" element={<EntityPage name="users" />} />

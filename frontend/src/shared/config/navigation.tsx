@@ -20,6 +20,7 @@ export const navItems: NavItem[] = [
   { label: "Кластеризация", icon: Layers, path: "/clustering" },
   { label: "История запусков", icon: History, path: "/cluster-history" },
   { label: "Результаты", icon: BarChart3, path: "/results" },
+  { label: "Статистика", icon: BarChart3, path: "/statistics" },
   { label: "Отчёты", icon: FileText, path: "/reports" },
   { label: "Резервное копирование", icon: HardDrive, path: "/backup" },
   { label: "Пользователи", icon: Users, path: "/users", roles: ["admin"] },
