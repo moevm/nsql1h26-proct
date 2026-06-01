@@ -4,6 +4,7 @@ import { Document, ObjectId } from "mongodb";
 import { getCollection } from "../db/collections.js";
 import { entityConfig, type EntityName } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
+import { withDerivedUploadFields } from "../services/upload-lifecycle.service.js";
 import { getQuery, normalizeIncoming, setNested, type QuerySource } from "../utils/query.js";
 
 type IdValue = ObjectId | string;
@@ -240,11 +241,30 @@ async function enrichStudentItems(items: Document[]) {
   }));
 }
 
+async function enrichUploadItems(items: Document[]) {
+  const userIds = [...new Set(items.map((item) => String(item.userId ?? "")).filter((id) => ObjectId.isValid(id)))];
+  const users = userIds.length
+    ? await getCollection("users")
+        .find({ _id: { $in: userIds.map((id) => new ObjectId(id)) } }, { projection: { fullName: 1, email: 1 } })
+        .toArray()
+    : [];
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  return items.map((item) => {
+    const user = usersById.get(String(item.userId));
+    return {
+      ...withDerivedUploadFields(item),
+      createdByName: user?.fullName ?? user?.email,
+    };
+  });
+}
+
 async function enrichEntityItems(entity: EntityName, items: Document[]) {
   if (entity === "users") return items.map(redactUser);
   if (entity === "students") return enrichStudentItems(items);
   if (entity === "sessions") return enrichSessionItems(items);
   if (entity === "timeline_events") return enrichTimelineEventItems(items);
+  if (entity === "uploads") return enrichUploadItems(items);
   return items;
 }
 

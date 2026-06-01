@@ -4,4 +4,5 @@ export const env = {
   MONGO_DB: process.env.MONGO_DB ?? "proctoring",
   JWT_SECRET: process.env.JWT_SECRET ?? "dev-secret-change-me",
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? "http://127.0.0.1:5173",
+  UPLOAD_DIR: process.env.UPLOAD_DIR ?? `${process.cwd()}/data/uploads`,
 };

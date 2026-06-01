@@ -19,9 +19,17 @@ export function formatNumber(value: unknown) {
 export function formatDuration(start: unknown, finish: unknown) {
   if (!start || !finish) return "—";
   const delta = Math.max(0, new Date(String(finish)).getTime() - new Date(String(start)).getTime());
+  return formatDurationMs(delta);
+}
+
+export function formatDurationMs(ms: unknown) {
+  const delta = Number(ms ?? 0);
+  if (!Number.isFinite(delta) || delta <= 0) return "—";
   const seconds = Math.round(delta / 1000);
-  if (seconds < 60) return `${seconds}с`;
-  return `${Math.floor(seconds / 60)}м ${seconds % 60}с`;
+  if (seconds < 60) return `${seconds} сек`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes} мин ${rest} сек` : `${minutes} мин`;
 }
 
 export function saveJsonFile(data: unknown, fileName: string) {

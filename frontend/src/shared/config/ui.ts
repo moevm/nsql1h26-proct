@@ -11,6 +11,11 @@ export const uploadStatusLabels = {
   success: { theme: "success" as const, text: "Успешно" },
   warning: { theme: "warning" as const, text: "Предупреждения" },
   error: { theme: "danger" as const, text: "Ошибка" },
+  done: { theme: "success" as const, text: "Завершено" },
+  done_with_warnings: { theme: "warning" as const, text: "Завершено с предупреждениями" },
+  failed: { theme: "danger" as const, text: "Ошибка" },
+  processing: { theme: "info" as const, text: "Обработка" },
+  pending: { theme: "info" as const, text: "Ожидает" },
 };
 
 export const runStatusLabels = {
