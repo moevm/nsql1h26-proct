@@ -7,6 +7,7 @@ import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
 import { getUploadLog } from "../queries/upload.queries.js";
 import type { AuthUser } from "../schema/user.schema.js";
+import { getAuditContext, recordRequestAuditEvent } from "../services/audit.service.js";
 import { getCsvTemplate, getCsvTemplateFileName, importCsv, isCsvImportKind } from "../services/csv-import.service.js";
 import { createDemoImport, processUpload } from "../services/import.service.js";
 import { removeUploadStorageDir } from "../services/upload-storage.service.js";
@@ -55,8 +56,9 @@ uploadsRouter.get(
 uploadsRouter.post(
   "/import-demo",
   auth,
-  asyncHandler(async (_req, res) => {
-    const uploadId = await createDemoImport(res.locals.user as AuthUser);
+  asyncHandler(async (req, res) => {
+    const user = res.locals.user as AuthUser;
+    const uploadId = await createDemoImport(user, getAuditContext(req, user));
     res.status(201).json({ _id: uploadId });
   }),
 );
@@ -85,14 +87,31 @@ uploadsRouter.delete(
     const batchIds = [...new Set(uploads.map((item) => String(item.importBatchId ?? item._id)).filter(Boolean))].map((value) => new ObjectId(value));
     const linkedFilter = { $or: [{ uploadId: { $in: uploadIds } }, { importBatchId: { $in: batchIds } }] };
 
-    await Promise.all([
+    const [uploadDelete, studentDelete, sessionDelete, eventDelete, clusteringDelete] = await Promise.all([
       getCollection("uploads").deleteMany({ _id: { $in: uploadIds } }),
       getCollection("students").deleteMany(linkedFilter),
       getCollection("sessions").deleteMany(linkedFilter),
       getCollection("timeline_events").deleteMany(linkedFilter),
       getCollection("clustering_runs").deleteMany({ $or: [{ uploadIds: { $in: uploadIds } }, { "filter.batchIds": { $in: batchIds.map(String) } }] }),
-      ...uploadIds.map((uploadId) => removeUploadStorageDir(uploadId)),
     ]);
+    await Promise.all(uploadIds.map((uploadId) => removeUploadStorageDir(uploadId)));
+
+    await recordRequestAuditEvent(req, res.locals.user as AuthUser, {
+      action: "upload.delete",
+      entityType: "upload",
+      entityId: objectId,
+      details: {
+        uploadIds: uploadIds.map(String),
+        batchIds: batchIds.map(String),
+        deletedCounts: {
+          uploads: uploadDelete.deletedCount,
+          students: studentDelete.deletedCount,
+          sessions: sessionDelete.deletedCount,
+          timelineEvents: eventDelete.deletedCount,
+          clusteringRuns: clusteringDelete.deletedCount,
+        },
+      },
+    });
 
     res.status(204).send();
   }),
@@ -102,7 +121,8 @@ uploadsRouter.post(
   "/process/:uploadId",
   auth,
   asyncHandler(async (req, res) => {
-    const result = await processUpload(String(req.params.uploadId), res.locals.user as AuthUser);
+    const user = res.locals.user as AuthUser;
+    const result = await processUpload(String(req.params.uploadId), user, getAuditContext(req, user));
     res.json(result);
   }),
 );
@@ -134,9 +154,11 @@ uploadsRouter.post(
       return;
     }
 
-    const result = await importCsv(kind, req.file.buffer, res.locals.user as AuthUser, {
+    const user = res.locals.user as AuthUser;
+    const result = await importCsv(kind, req.file.buffer, user, {
       batchId: typeof req.body.batchId === "string" ? req.body.batchId : undefined,
       originalName: req.file.originalname,
+      auditContext: getAuditContext(req, user),
     });
     res.status(201).json(result);
   }),

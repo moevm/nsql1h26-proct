@@ -3,6 +3,7 @@ import { Document, ObjectId } from "mongodb";
 import { getCollection } from "../db/collections.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import type { UnresolvedStudent } from "../schema/upload.schema.js";
+import { safeRecordAuditEvent, type AuditContext } from "../services/audit.service.js";
 import { deriveBatchUploadMetrics, mergeUnresolvedStudents, transitionUploadsInScope } from "../services/upload-lifecycle.service.js";
 
 const processableDemoStatuses = ["pending", "processing"];
@@ -104,7 +105,7 @@ export async function getUploadLog(
   };
 }
 
-export async function createDemoUpload(user: AuthUser) {
+export async function createDemoUpload(user: AuthUser, auditContext?: AuditContext) {
   const now = new Date();
   const uploadId = new ObjectId();
   await getCollection("uploads").insertOne({
@@ -120,7 +121,8 @@ export async function createDemoUpload(user: AuthUser) {
     unresolvedStudents: [],
     processingStartedAt: now,
   });
-  await getCollection("audit_logs").insertOne({
+  await safeRecordAuditEvent({
+    ...auditContext,
     actorUserId: new ObjectId(user._id),
     actorType: "user",
     action: "upload.create",
@@ -132,7 +134,7 @@ export async function createDemoUpload(user: AuthUser) {
   return uploadId;
 }
 
-export async function markUploadProcessed(uploadId: string, user: AuthUser) {
+export async function markUploadProcessed(uploadId: string, user: AuthUser, auditContext?: AuditContext) {
   if (!ObjectId.isValid(uploadId)) return 0;
 
   const objectId = new ObjectId(uploadId);
@@ -157,5 +159,6 @@ export async function markUploadProcessed(uploadId: string, user: AuthUser) {
         message: "Обработка завершена",
       },
     },
+    auditContext,
   );
 }

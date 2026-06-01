@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 import type { AuthUser } from "../schema/user.schema.js";
 
-function readToken(req: Request): string | undefined {
+export function readToken(req: Request): string | undefined {
   const header = req.headers.authorization;
   if (header?.startsWith("Bearer ")) return header.slice("Bearer ".length);
   return req.cookies?.token as string | undefined;

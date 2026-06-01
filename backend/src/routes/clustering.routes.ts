@@ -1,9 +1,12 @@
 import { Router } from "express";
+import { ObjectId } from "mongodb";
 
+import { getCollection } from "../db/collections.js";
 import { auth } from "../middleware/auth.middleware.js";
 import { asyncHandler } from "../middleware/async-handler.js";
 import { deleteClusteringRun, getRunWithSessions } from "../queries/clustering.queries.js";
 import type { AuthUser } from "../schema/user.schema.js";
+import { recordRequestAuditEvent } from "../services/audit.service.js";
 import { createClusteringRun, type ClusteringRunInput } from "../services/clustering.service.js";
 import { serializeDocument } from "../utils/query.js";
 
@@ -13,11 +16,26 @@ clusteringRouter.post(
   "/clustering-runs/run",
   auth,
   asyncHandler(async (req, res) => {
-    const insertedId = await createClusteringRun(req.body as ClusteringRunInput, res.locals.user as AuthUser);
+    const user = res.locals.user as AuthUser;
+    const input = req.body as ClusteringRunInput;
+    const insertedId = await createClusteringRun(input, user);
     if (!insertedId) {
       res.status(400).json({ message: "Недостаточно сессий для кластеризации" });
       return;
     }
+
+    const run = await getCollection("clustering_runs").findOne({ _id: insertedId });
+    await recordRequestAuditEvent(req, user, {
+      action: "clustering_run.create",
+      entityType: "clustering_run",
+      entityId: insertedId,
+      after: run,
+      details: {
+        algorithm: run?.algorithm ?? input.algorithm ?? "kmeans",
+        totalSessions: (run?.results as Record<string, unknown> | undefined)?.totalSessions,
+        anomalyCount: (run?.results as Record<string, unknown> | undefined)?.anomalyCount,
+      },
+    });
 
     res.status(201).json({ _id: insertedId });
   }),
@@ -45,11 +63,25 @@ clusteringRouter.delete(
   "/clustering-runs/:runId",
   auth,
   asyncHandler(async (req, res) => {
-    const deleted = await deleteClusteringRun(String(req.params.runId));
+    const runId = String(req.params.runId);
+    const before = ObjectId.isValid(runId) ? await getCollection("clustering_runs").findOne({ _id: new ObjectId(runId) }) : null;
+    const deleted = await deleteClusteringRun(runId);
     if (!deleted) {
       res.status(404).json({ message: "Запуск не найден" });
       return;
     }
+
+    await recordRequestAuditEvent(req, res.locals.user as AuthUser, {
+      action: "clustering_run.delete",
+      entityType: "clustering_run",
+      entityId: runId,
+      before,
+      details: {
+        algorithm: before?.algorithm,
+        totalSessions: (before?.results as Record<string, unknown> | undefined)?.totalSessions,
+        anomalyCount: (before?.results as Record<string, unknown> | undefined)?.anomalyCount,
+      },
+    });
 
     res.status(204).send();
   }),
