@@ -3,8 +3,17 @@ import { Document, ObjectId } from "mongodb";
 
 import { getCollection } from "../db/collections.js";
 import type { AuthUser } from "../schema/user.schema.js";
+import type { UnresolvedStudent } from "../schema/upload.schema.js";
+import { recordUploadStatusChange, mergeUnresolvedStudents } from "./upload-lifecycle.service.js";
+import { persistUploadFile } from "./upload-storage.service.js";
 
 export type CsvImportKind = "students" | "sessions" | "moodle_events" | "ocr_events";
+
+type CsvImportError = {
+  line: number;
+  message: string;
+  rowContent?: string;
+};
 
 type CsvImportResult = {
   uploadId: ObjectId;
@@ -13,7 +22,7 @@ type CsvImportResult = {
   totalRows: number;
   insertedCount: number;
   errorCount: number;
-  errors: Array<{ line: number; message: string }>;
+  errors: CsvImportError[];
 };
 
 const templates: Record<CsvImportKind, string[]> = {
@@ -88,6 +97,39 @@ function parseEmbedding(value: unknown) {
     .filter((part) => Number.isFinite(part));
 }
 
+function serializeRowContent(row: Document, maxLength = 200) {
+  const text = Object.values(row)
+    .map((value) => String(value ?? ""))
+    .join("; ");
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function findPrefixMatch(externalId: string, knownIds: string[]) {
+  const normalized = externalId.trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  const exactIgnoreCase = knownIds.find((id) => id.toLowerCase() === normalized);
+  if (exactIgnoreCase) return exactIgnoreCase;
+
+  return knownIds.find((id) => id.toLowerCase().startsWith(normalized) || normalized.startsWith(id.toLowerCase()));
+}
+
+async function loadKnownStudentExternalIds(importBatchId: ObjectId) {
+  const students = await getCollection("students")
+    .find({ $or: [{ importBatchId }, { importBatchId: { $exists: false } }] }, { projection: { externalId: 1 } })
+    .toArray();
+  return students.map((student) => String(student.externalId ?? "")).filter(Boolean);
+}
+
+function buildUnresolvedStudent(externalId: string, knownIds: string[]): UnresolvedStudent {
+  const trimmed = externalId.trim();
+  return {
+    externalId: trimmed,
+    reason: "Студент не найден в справочнике",
+    possibleMatch: findPrefixMatch(trimmed, knownIds),
+  };
+}
+
 async function ensureDefaultUniversity(now: Date) {
   const universities = getCollection("universities");
   const existing = await universities.findOne({ externalCode: "csv-default" });
@@ -103,9 +145,15 @@ async function ensureDefaultUniversity(now: Date) {
   return result.insertedId;
 }
 
-async function createImportUpload(kind: CsvImportKind, user: AuthUser, now: Date, batchId?: string, originalName?: string) {
-  const uploadId = new ObjectId();
-  const importBatchId = batchId && ObjectId.isValid(batchId) ? new ObjectId(batchId) : new ObjectId();
+async function createImportUpload(
+  kind: CsvImportKind,
+  user: AuthUser,
+  now: Date,
+  uploadId: ObjectId,
+  importBatchId: ObjectId,
+  storagePath: string,
+  originalName?: string,
+) {
   await getCollection("uploads").insertOne({
     _id: uploadId,
     importBatchId,
@@ -118,15 +166,42 @@ async function createImportUpload(kind: CsvImportKind, user: AuthUser, now: Date
     totalRows: 0,
     matchedStudents: 0,
     files: {
-      [kind]: { kind, typeLabel: kindLabels[kind], originalName: originalName ?? `${kind}.csv`, storagePath: "memory", status: "processing" },
+      [kind]: { kind, typeLabel: kindLabels[kind], originalName: originalName ?? `${kind}.csv`, storagePath, status: "processing" },
     },
     processingLog: [{ timestamp: now, level: "info", sourceFileKey: kind, line: 1, entityType: "upload", message: `CSV импорт начат: ${kindLabels[kind]}` }],
     unresolvedStudents: [],
+    processingStartedAt: now,
+  });
+  await getCollection("audit_logs").insertOne({
+    actorUserId: new ObjectId(user._id),
+    actorType: "user",
+    action: "upload.import_start",
+    entityType: "upload",
+    entityId: uploadId,
+    occurredAt: now,
+    details: { kind, importBatchId: String(importBatchId) },
   });
   return { uploadId, importBatchId };
 }
 
-async function finishImportUpload(uploadId: ObjectId, kind: CsvImportKind, result: Omit<CsvImportResult, "uploadId" | "importBatchId" | "kind">, now: Date) {
+async function finishImportUpload(
+  uploadId: ObjectId,
+  kind: CsvImportKind,
+  result: Omit<CsvImportResult, "uploadId" | "importBatchId" | "kind"> & { unresolvedStudents?: UnresolvedStudent[] },
+  now: Date,
+  userId: ObjectId,
+) {
+  const current = await getCollection("uploads").findOne({ _id: uploadId });
+  const newStatus = result.errorCount ? "done_with_warnings" : "done";
+  const historyEntry = await recordUploadStatusChange({
+    uploadId,
+    oldStatus: String(current?.status ?? "processing"),
+    newStatus,
+    userId,
+    reason: result.errorCount ? "CSV импорт завершен с предупреждениями" : "CSV импорт завершен",
+    details: { kind, errorCount: result.errorCount },
+  });
+
   const logEntries = result.errors.slice(0, 100).map((error) => ({
     timestamp: now,
     level: "warn",
@@ -134,44 +209,60 @@ async function finishImportUpload(uploadId: ObjectId, kind: CsvImportKind, resul
     line: error.line,
     entityType: kind,
     message: error.message,
+    rowContent: error.rowContent,
   }));
 
-  await getCollection("uploads").updateOne(
-    { _id: uploadId },
-    {
-      $set: {
-        status: result.errorCount ? "done_with_warnings" : "done",
-        updateTime: now,
-        totalRows: result.totalRows,
-        matchedStudents: result.insertedCount,
-        [`files.${kind}.rowsCount`]: result.totalRows,
-        [`files.${kind}.status`]: result.errorCount ? "warning" : "done",
+  const update: Document = {
+    $set: {
+      status: newStatus,
+      updateTime: now,
+      processingFinishedAt: now,
+      totalRows: result.totalRows,
+      matchedStudents: result.insertedCount,
+      [`files.${kind}.rowsCount`]: result.totalRows,
+      [`files.${kind}.status`]: result.errorCount ? "warning" : "done",
+    },
+    $push: {
+      processingLog: {
+        $each: [
+          ...logEntries,
+          {
+            timestamp: now,
+            level: result.errorCount ? "warn" : "info",
+            sourceFileKey: kind,
+            line: result.totalRows,
+            entityType: kind,
+            message: `CSV импорт завершен: добавлено ${result.insertedCount}, ошибок ${result.errorCount}`,
+          },
+        ],
       },
-      $push: {
-        processingLog: {
-          $each: [
-            ...logEntries,
-            {
-              timestamp: now,
-              level: result.errorCount ? "warn" : "info",
-              sourceFileKey: kind,
-              line: result.totalRows,
-              entityType: kind,
-              message: `CSV импорт завершен: добавлено ${result.insertedCount}, ошибок ${result.errorCount}`,
-            },
-          ],
-        },
-      } as Document,
-    } as Document,
-  );
+    },
+  };
+
+  if (historyEntry) {
+    update.$push.statusHistory = historyEntry;
+  }
+
+  if (result.unresolvedStudents?.length) {
+    update.$set.unresolvedStudents = mergeUnresolvedStudents(
+      (current?.unresolvedStudents as UnresolvedStudent[] | undefined) ?? [],
+      result.unresolvedStudents,
+    );
+  }
+
+  await getCollection("uploads").updateOne({ _id: uploadId }, update as Document);
 }
 
 async function importStudents(rows: Document[], uploadId: ObjectId, importBatchId: ObjectId, now: Date) {
   const universityId = await ensureDefaultUniversity(now);
-  const errors: CsvImportResult["errors"] = [];
+  const errors: CsvImportError[] = [];
   const documents = rows.flatMap<Document>((row, index): Document[] => {
     if (!row.externalId || !row.fullName || !row.email) {
-      errors.push({ line: index + 2, message: "Обязательные поля: externalId, fullName, email" });
+      errors.push({
+        line: index + 2,
+        message: "Обязательные поля: externalId, fullName, email",
+        rowContent: serializeRowContent(row),
+      });
       return [];
     }
     return [
@@ -195,19 +286,29 @@ async function importStudents(rows: Document[], uploadId: ObjectId, importBatchI
   });
 
   if (documents.length) await getCollection("students").insertMany(documents);
-  return { insertedCount: documents.length, errors };
+  return { insertedCount: documents.length, errors, unresolvedStudents: [] as UnresolvedStudent[] };
 }
 
 async function importSessions(rows: Document[], uploadId: ObjectId, importBatchId: ObjectId, now: Date) {
-  const errors: CsvImportResult["errors"] = [];
+  const errors: CsvImportError[] = [];
+  const unresolvedMap = new Map<string, UnresolvedStudent>();
   const externalIds = rows.map((row) => String(row.externalStudentId ?? "")).filter(Boolean);
+  const knownIds = await loadKnownStudentExternalIds(importBatchId);
   const students = await getCollection("students").find({ externalId: { $in: externalIds }, $or: [{ importBatchId }, { importBatchId: { $exists: false } }] }).toArray();
   const studentsByExternalId = new Map(students.map((student) => [String(student.externalId), student]));
 
   const documents = rows.flatMap((row, index) => {
-    const student = studentsByExternalId.get(String(row.externalStudentId ?? ""));
+    const externalStudentId = String(row.externalStudentId ?? "");
+    const student = studentsByExternalId.get(externalStudentId);
     if (!student) {
-      errors.push({ line: index + 2, message: `Студент ${String(row.externalStudentId ?? "")} не найден` });
+      errors.push({
+        line: index + 2,
+        message: `Студент ${externalStudentId} не найден`,
+        rowContent: serializeRowContent(row),
+      });
+      if (externalStudentId && !unresolvedMap.has(externalStudentId)) {
+        unresolvedMap.set(externalStudentId, buildUnresolvedStudent(externalStudentId, knownIds));
+      }
       return [];
     }
 
@@ -244,12 +345,14 @@ async function importSessions(rows: Document[], uploadId: ObjectId, importBatchI
   });
 
   if (documents.length) await getCollection("sessions").insertMany(documents);
-  return { insertedCount: documents.length, errors };
+  return { insertedCount: documents.length, errors, unresolvedStudents: [...unresolvedMap.values()] };
 }
 
 async function importEvents(kind: Extract<CsvImportKind, "moodle_events" | "ocr_events">, rows: Document[], uploadId: ObjectId, importBatchId: ObjectId, now: Date) {
-  const errors: CsvImportResult["errors"] = [];
+  const errors: CsvImportError[] = [];
+  const unresolvedMap = new Map<string, UnresolvedStudent>();
   const externalIds = rows.map((row) => String(row.externalStudentId ?? "")).filter(Boolean);
+  const knownIds = await loadKnownStudentExternalIds(importBatchId);
   const students = await getCollection("students").find({ externalId: { $in: externalIds }, $or: [{ importBatchId }, { importBatchId: { $exists: false } }] }).toArray();
   const studentsByExternalId = new Map(students.map((student) => [String(student.externalId), student]));
   const studentIds = students.map((student) => student._id);
@@ -261,14 +364,31 @@ async function importEvents(kind: Extract<CsvImportKind, "moodle_events" | "ocr_
   }
 
   const documents = rows.flatMap((row, index) => {
-    const student = studentsByExternalId.get(String(row.externalStudentId ?? ""));
+    const externalStudentId = String(row.externalStudentId ?? "");
+    const student = studentsByExternalId.get(externalStudentId);
     const session =
       row.sessionId && ObjectId.isValid(String(row.sessionId))
         ? sessions.find((item) => item._id.equals(new ObjectId(String(row.sessionId))))
         : firstSessionByStudentId.get(String(student?._id ?? ""));
 
-    if (!student || !session) {
-      errors.push({ line: index + 2, message: "Не найден студент или сессия для события" });
+    if (!student) {
+      errors.push({
+        line: index + 2,
+        message: "Не найден студент для события",
+        rowContent: serializeRowContent(row),
+      });
+      if (externalStudentId && !unresolvedMap.has(externalStudentId)) {
+        unresolvedMap.set(externalStudentId, buildUnresolvedStudent(externalStudentId, knownIds));
+      }
+      return [];
+    }
+
+    if (!session) {
+      errors.push({
+        line: index + 2,
+        message: "Не найдена сессия для события",
+        rowContent: serializeRowContent(row),
+      });
       return [];
     }
 
@@ -329,13 +449,16 @@ async function importEvents(kind: Extract<CsvImportKind, "moodle_events" | "ocr_
   });
 
   if (documents.length) await getCollection("timeline_events").insertMany(documents);
-  return { insertedCount: documents.length, errors };
+  return { insertedCount: documents.length, errors, unresolvedStudents: [...unresolvedMap.values()] };
 }
 
 export async function importCsv(kind: CsvImportKind, buffer: Buffer, user: AuthUser, options: { batchId?: string; originalName?: string } = {}): Promise<CsvImportResult> {
   const now = new Date();
   const rows = parseCsv(buffer);
-  const { uploadId, importBatchId } = await createImportUpload(kind, user, now, options.batchId, options.originalName);
+  const uploadId = new ObjectId();
+  const importBatchId = options.batchId && ObjectId.isValid(options.batchId) ? new ObjectId(options.batchId) : new ObjectId();
+  const storagePath = await persistUploadFile(buffer, uploadId, kind, options.originalName);
+  await createImportUpload(kind, user, now, uploadId, importBatchId, storagePath, options.originalName);
 
   const imported =
     kind === "students"
@@ -349,8 +472,9 @@ export async function importCsv(kind: CsvImportKind, buffer: Buffer, user: AuthU
     insertedCount: imported.insertedCount,
     errorCount: imported.errors.length,
     errors: imported.errors,
+    unresolvedStudents: imported.unresolvedStudents,
   };
-  await finishImportUpload(uploadId, kind, summary, new Date());
+  await finishImportUpload(uploadId, kind, summary, new Date(), new ObjectId(user._id));
 
   return { uploadId, importBatchId, kind, ...summary };
 }

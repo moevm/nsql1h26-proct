@@ -267,7 +267,7 @@ export function UploadHistoryPage() {
                           className="text-[12px] h-7"
                           onClick={(event) => {
                             event.stopPropagation();
-                            navigate(`/uploads/${b.uploadId}/log`);
+                            navigate(`/uploads/${b.id}/log`);
                           }}
                         >
                           <span className="flex items-center gap-1">

@@ -5,7 +5,7 @@ export function createDemoImport(user: AuthUser) {
   return createDemoUpload(user);
 }
 
-export async function processUpload(uploadId: string) {
-  await markUploadProcessed(uploadId);
-  return { ok: true };
+export async function processUpload(uploadId: string, user: AuthUser) {
+  const processedCount = await markUploadProcessed(uploadId, user);
+  return { ok: true, processedCount };
 }

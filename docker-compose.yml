@@ -19,6 +19,9 @@ services:
       MONGO_URL: mongodb://db:27017
       MONGO_DB: proctoring
       CORS_ORIGIN: http://127.0.0.1:5173
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - upload_data:/data/uploads
     ports:
       - "127.0.0.1:18080:8080"
 
@@ -33,3 +36,4 @@ services:
 
 volumes:
   db_data:
+  upload_data:

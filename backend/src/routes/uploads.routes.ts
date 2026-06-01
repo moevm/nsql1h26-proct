@@ -9,19 +9,34 @@ import { getUploadLog } from "../queries/upload.queries.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { getCsvTemplate, getCsvTemplateFileName, importCsv, isCsvImportKind } from "../services/csv-import.service.js";
 import { createDemoImport, processUpload } from "../services/import.service.js";
+import { removeUploadStorageDir } from "../services/upload-storage.service.js";
 import { getQuery, serializeDocument } from "../utils/query.js";
 
 export const uploadsRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+function getValidDateQuery(value: string | undefined) {
+  if (!value) return undefined;
+  return Number.isNaN(new Date(value).getTime()) ? null : value;
+}
+
 uploadsRouter.get(
   "/uploads/:id/log",
   auth,
   asyncHandler(async (req, res) => {
+    const timeFrom = getValidDateQuery(getQuery(req.query, "timeFrom"));
+    const timeTo = getValidDateQuery(getQuery(req.query, "timeTo"));
+    if (timeFrom === null || timeTo === null) {
+      res.status(400).json({ message: "Некорректный фильтр времени" });
+      return;
+    }
+
     const data = await getUploadLog(String(req.params.id), {
       level: getQuery(req.query, "level"),
       lineFrom: Number(getQuery(req.query, "lineFrom") ?? Number.NEGATIVE_INFINITY),
       lineTo: Number(getQuery(req.query, "lineTo") ?? Number.POSITIVE_INFINITY),
+      timeFrom,
+      timeTo,
     });
 
     if (!data) {
@@ -76,6 +91,7 @@ uploadsRouter.delete(
       getCollection("sessions").deleteMany(linkedFilter),
       getCollection("timeline_events").deleteMany(linkedFilter),
       getCollection("clustering_runs").deleteMany({ $or: [{ uploadIds: { $in: uploadIds } }, { "filter.batchIds": { $in: batchIds.map(String) } }] }),
+      ...uploadIds.map((uploadId) => removeUploadStorageDir(uploadId)),
     ]);
 
     res.status(204).send();
@@ -86,7 +102,7 @@ uploadsRouter.post(
   "/process/:uploadId",
   auth,
   asyncHandler(async (req, res) => {
-    const result = await processUpload(String(req.params.uploadId));
+    const result = await processUpload(String(req.params.uploadId), res.locals.user as AuthUser);
     res.json(result);
   }),
 );

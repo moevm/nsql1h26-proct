@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,11 +9,16 @@ import {
   UserX,
   AlertTriangle,
   Info,
+  Loader2,
 } from "lucide-react";
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
-import { api } from "../shared/api/client";
+import { api, ApiError } from "../shared/api/client";
 import type { AnyRecord } from "../entities/types";
 import { RecordDetailsView } from "../shared/ui/RecordDetailsView";
+import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { uploadStatusLabels } from "../shared/config/ui";
+import { formatDate, formatDurationMs } from "../shared/lib/format";
+import { isValidIsoDateTime } from "../shared/lib/dateTime";
 
 interface LogEntry {
   id: number;
@@ -34,6 +39,7 @@ interface ProblemRow {
 
 interface UnmappedStudent {
   id: string;
+  possibleMatch: string;
   reason: string;
 }
 
@@ -50,12 +56,18 @@ const entityLabels: Record<LogEntry["entityType"], string> = {
 };
 
 type TabType = "log" | "problems" | "unmapped";
+const finalUploadStatuses = new Set(["done", "done_with_warnings", "failed", "success", "warning", "error"]);
 
 function normalizeEntity(value: unknown): LogEntry["entityType"] {
   const raw = String(value ?? "");
   if (raw.includes("student")) return "student";
   if (raw.includes("ocr") || raw.includes("camera")) return "camera";
   return "moodle";
+}
+
+function uploadStatusLabel(status: string) {
+  const key = status as keyof typeof uploadStatusLabels;
+  return uploadStatusLabels[key]?.text ?? status;
 }
 
 export function UploadLogPage() {
@@ -66,30 +78,58 @@ export function UploadLogPage() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [fileFilter, setFileFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [timeFrom, setTimeFrom] = useState("");
+  const [timeTo, setTimeTo] = useState("");
   const [search, setSearch] = useState("");
   const [upload, setUpload] = useState<AnyRecord | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [problemRows, setProblemRows] = useState<ProblemRow[]>([]);
   const [unmappedStudents, setUnmappedStudents] = useState<UnmappedStudent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const timeFromValid = isValidIsoDateTime(timeFrom);
+  const timeToValid = isValidIsoDateTime(timeTo);
+  const timeFiltersValid = timeFromValid && timeToValid;
 
-  useEffect(() => {
+  const loadLog = useCallback(async () => {
     if (!currentId) return;
+    if (!timeFiltersValid) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setNotFound(false);
+    setLoadError("");
     setUpload(null);
     setLogEntries([]);
     setProblemRows([]);
     setUnmappedStudents([]);
-    void api<{ upload: AnyRecord; processingLog: AnyRecord[]; unresolvedStudents: AnyRecord[] }>(`/uploads/${currentId}/log`).then((data) => {
+    try {
+      const params = new URLSearchParams();
+      if (levelFilter !== "all") params.set("level", levelFilter);
+      if (timeFrom) params.set("timeFrom", timeFrom);
+      if (timeTo) params.set("timeTo", timeTo);
+      const query = params.toString();
+      const data = await api<{ upload: AnyRecord; processingLog: AnyRecord[]; unresolvedStudents: AnyRecord[] }>(
+        `/uploads/${currentId}/log${query ? `?${query}` : ""}`,
+      );
       setUpload(data.upload);
       setLogEntries(
-        data.processingLog.map((entry, index) => ({
-          id: index + 1,
-          time: entry.timestamp ? new Date(String(entry.timestamp)).toLocaleTimeString("ru-RU") : "—",
-          level: String(entry.level ?? "info") as LogEntry["level"],
-          file: String(entry.sourceFileKey ?? "csv"),
-          line: Number(entry.line ?? 0),
-          entityType: normalizeEntity(entry.entityType),
-          message: String(entry.message ?? ""),
-        })),
+        data.processingLog.map((entry, index) => {
+          const timestamp = entry.timestamp ? String(entry.timestamp) : "";
+          return {
+            id: index + 1,
+            time: timestamp ? new Date(timestamp).toLocaleTimeString("ru-RU") : "—",
+            level: String(entry.level ?? "info") as LogEntry["level"],
+            file: String(entry.sourceFileKey ?? "csv"),
+            line: Number(entry.line ?? 0),
+            entityType: normalizeEntity(entry.entityType),
+            message: String(entry.message ?? ""),
+          };
+        }),
       );
       setProblemRows(
         data.processingLog
@@ -97,32 +137,52 @@ export function UploadLogPage() {
           .map((entry) => ({
             file: String(entry.sourceFileKey ?? "csv"),
             line: Number(entry.line ?? 0),
-            content: String(entry.message ?? ""),
-            error: String(entry.message ?? ""),
+            content: String(entry.rowContent ?? "—"),
+            error: String(entry.message ?? "—"),
           })),
       );
       setUnmappedStudents(
         data.unresolvedStudents.map((student) => ({
           id: String(student.externalId ?? student.id ?? ""),
+          possibleMatch: String(student.possibleMatch ?? "—"),
           reason: String(student.reason ?? "Не сопоставлен"),
         })),
       );
-    });
-  }, [currentId]);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setNotFound(true);
+      } else {
+        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить журнал");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [currentId, levelFilter, timeFrom, timeFiltersValid, timeTo]);
+
+  useEffect(() => {
+    void loadLog();
+  }, [loadLog, reloadKey]);
 
   const files = [...new Set(logEntries.map((e) => e.file))];
 
-  const hasFilters = levelFilter !== "all" || fileFilter !== "all" || entityFilter !== "all" || search;
+  const hasFilters =
+    levelFilter !== "all" ||
+    fileFilter !== "all" ||
+    entityFilter !== "all" ||
+    timeFrom ||
+    timeTo ||
+    search;
 
   const resetFilters = () => {
     setLevelFilter("all");
     setFileFilter("all");
     setEntityFilter("all");
+    setTimeFrom("");
+    setTimeTo("");
     setSearch("");
   };
 
   const filteredLog = logEntries.filter((e) => {
-    if (levelFilter !== "all" && e.level !== levelFilter) return false;
     if (fileFilter !== "all" && e.file !== fileFilter) return false;
     if (entityFilter !== "all" && e.entityType !== entityFilter) return false;
     if (search && !e.message.toLowerCase().includes(search.toLowerCase())) return false;
@@ -134,6 +194,64 @@ export function UploadLogPage() {
     { id: "problems", label: "Проблемные строки", count: problemRows.length },
     { id: "unmapped", label: "Несопоставленные студенты", count: unmappedStudents.length },
   ];
+
+  const duration = formatDurationMs(upload?.processingDurationMs);
+  const uploadStatus = String(upload?.status ?? "");
+  const canProcessUpload = Boolean(currentId && upload && !finalUploadStatuses.has(uploadStatus));
+
+  async function handleProcess() {
+    if (!canProcessUpload) return;
+    setProcessing(true);
+    try {
+      await api(`/process/${currentId}`, { method: "POST", body: "{}" });
+      setReloadKey((key) => key + 1);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground gap-2">
+        <Loader2 className="w-5 h-5 animate-spin" />
+        Загрузка журнала...
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => navigate("/upload-history")}
+          className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          История загрузок
+        </button>
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Загрузка не найдена
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => navigate("/upload-history")}
+          className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          История загрузок
+        </button>
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          {loadError || "Не удалось загрузить журнал"}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -154,10 +272,10 @@ export function UploadLogPage() {
               </h1>
             </div>
             <p className="text-[14px] text-muted-foreground">
-              Загрузка от {upload?.createdAt ? new Date(String(upload.createdAt)).toLocaleString("ru-RU") : "—"} · {String(upload?.createdByName ?? upload?.createdBy ?? "Система")} · Статус: {String(upload?.status ?? "—")}
+              Загрузка от {formatDate(upload?.createdAt)} · {String(upload?.createdByName ?? upload?.createdBy ?? "Система")} · Статус: {uploadStatusLabel(String(upload?.status ?? "—"))} · Длительность: {duration}
             </p>
           </div>
-          <Button view="action" className="text-[13px] h-9" onClick={() => void api(`/process/${currentId}`, { method: "POST", body: "{}" })}>
+          <Button view="action" className="text-[13px] h-9" loading={processing} disabled={!canProcessUpload} onClick={() => void handleProcess()}>
             Запустить обработку
           </Button>
         </div>
@@ -202,12 +320,21 @@ export function UploadLogPage() {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
               <TextInput placeholder="Поиск в сообщениях" size="m" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
               <Select value={[levelFilter]} onUpdate={(v) => setLevelFilter(v[0])} options={[{ value: "all", content: "Все уровни" }, { value: "info", content: "info" }, { value: "warn", content: "warn" }, { value: "error", content: "error" }]} size="m" />
               <Select value={[fileFilter]} onUpdate={(v) => setFileFilter(v[0])} options={[{ value: "all", content: "Все файлы" }, ...files.map((f) => ({ value: f, content: f }))]} size="m" />
               <Select value={[entityFilter]} onUpdate={(v) => setEntityFilter(v[0])} options={[{ value: "all", content: "Все сущности" }, { value: "student", content: "Студент" }, { value: "moodle", content: "Строка Moodle" }, { value: "camera", content: "Запись камеры" }]} size="m" />
+              <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+                <DateTimeIsoInput label="Время от" value={timeFrom} onUpdate={setTimeFrom} />
+                <DateTimeIsoInput label="Время до" value={timeTo} onUpdate={setTimeTo} />
+              </div>
             </div>
+            {!timeFiltersValid && (
+              <div className="mt-2 text-[12px] text-destructive">
+                Введите корректные ISO дату и время для фильтрации журнала.
+              </div>
+            )}
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5">
@@ -291,7 +418,8 @@ export function UploadLogPage() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-muted-foreground text-left">
-                    <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>ID студента</th>
+                    <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>ID из файла</th>
+                    <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Возможное совпадение</th>
                     <th className="pb-3" style={{ fontWeight: 500 }}>Причина несопоставления</th>
                   </tr>
                 </thead>
@@ -299,6 +427,7 @@ export function UploadLogPage() {
                   {unmappedStudents.map((s) => (
                     <tr key={s.id} className="border-b border-border/50 last:border-0">
                       <td className="py-2.5 pr-4 font-mono text-[12px]" style={{ fontWeight: 500 }}>{s.id}</td>
+                      <td className="py-2.5 pr-4 font-mono text-[12px] text-muted-foreground">{s.possibleMatch}</td>
                       <td className="py-2.5 text-warning">{s.reason}</td>
                     </tr>
                   ))}

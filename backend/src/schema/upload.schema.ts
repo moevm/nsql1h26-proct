@@ -16,11 +16,13 @@ export type ProcessingLogEntry = {
   line?: number;
   entityType: string;
   message: string;
+  rowContent?: string;
 };
 
 export type UnresolvedStudent = {
   externalId: string;
   reason: string;
+  possibleMatch?: string;
 };
 
 export type UploadDocument = {
@@ -44,4 +46,6 @@ export type UploadDocument = {
   }>;
   processingLog?: ProcessingLogEntry[];
   unresolvedStudents?: UnresolvedStudent[];
+  processingStartedAt?: Date;
+  processingFinishedAt?: Date;
 };
