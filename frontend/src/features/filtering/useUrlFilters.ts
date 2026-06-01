@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FilterField } from "../../entities/types";
 import { isoDateTimeToTimestamp, timestampToIsoDateTime } from "../../shared/lib/dateTime";
@@ -18,6 +18,10 @@ export function useUrlFilters(fields: FilterField[]) {
     return next;
   }, [dateTimeKeys, params]);
   const [draft, setDraft] = useState<Record<string, string>>(initial);
+
+  useEffect(() => {
+    setDraft(initial);
+  }, [initial]);
 
   function submit(event: FormEvent) {
     event.preventDefault();

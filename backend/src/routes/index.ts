@@ -6,6 +6,7 @@ import { clusteringRouter } from "./clustering.routes.js";
 import { entityRouter } from "./entity.routes.js";
 import { healthRouter } from "./health.routes.js";
 import { reportsRouter } from "./reports.routes.js";
+import { statisticsRouter } from "./statistics.routes.js";
 import { uploadsRouter } from "./uploads.routes.js";
 
 export const apiRouter = Router();
@@ -17,3 +18,4 @@ apiRouter.use(uploadsRouter);
 apiRouter.use(clusteringRouter);
 apiRouter.use(reportsRouter);
 apiRouter.use(backupRouter);
+apiRouter.use(statisticsRouter);
