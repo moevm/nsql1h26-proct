@@ -5,6 +5,8 @@ export type UploadFile = {
   typeLabel?: string;
   originalName: string;
   storagePath: string;
+  sha256?: string;
+  sizeBytes?: number;
   rowsCount?: number;
   status: string;
 };

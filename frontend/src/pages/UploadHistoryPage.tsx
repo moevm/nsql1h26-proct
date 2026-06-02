@@ -14,8 +14,9 @@ import {
   Square,
 } from "lucide-react";
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
+import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 import { useRetryProcessing, useStopProcessing, useUploads } from "../entities/upload/model/hooks";
-import { uploadStatusLabels } from "../shared/config/ui";
+import { getUploadStatusLabel } from "../shared/config/ui";
 import { api } from "../shared/api/client";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
@@ -42,6 +43,7 @@ export function UploadHistoryPage() {
   const [studentsMax, setStudentsMax] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [actingBatchId, setActingBatchId] = useState("");
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -63,7 +65,7 @@ export function UploadHistoryPage() {
     .filter((b) => {
       if (!matchesText(b.id, idFilter)) return false;
       if (!matchesText(b.fileTypes, fileTypesFilter)) return false;
-      if (statusFilter !== "all" && b.status !== statusFilter) return false;
+      if (statusFilter !== "all" && !matchesStatusFilter(b.status, statusFilter)) return false;
       if (authorFilter !== "all" && b.author !== authorFilter) return false;
       if (!matchesNumberRange(b.files, filesMin, filesMax)) return false;
       if (!matchesNumberRange(b.rowsCount, rowsMin, rowsMax)) return false;
@@ -117,21 +119,27 @@ export function UploadHistoryPage() {
 
   const stopBatchProcessing = async (id: string) => {
     if (!window.confirm("Остановить обработку? Исходные файлы сохранятся, обработку можно будет перезапустить.")) return;
+    setActingBatchId(id);
     try {
       await stopProcessing.run(id);
       refetch();
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Не удалось остановить обработку");
+    } finally {
+      setActingBatchId("");
     }
   };
 
   const retryBatchProcessing = async (id: string) => {
+    setActingBatchId(id);
     try {
       await retryProcessing.run(id);
       refetch();
       navigate(`/processing?uploadId=${id}`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Не удалось перезапустить обработку");
+    } finally {
+      setActingBatchId("");
     }
   };
 
@@ -263,17 +271,17 @@ export function UploadHistoryPage() {
                   <tr
                     key={b.id}
                     className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/uploads/${b.uploadId}`)}
+                    onClick={() => navigate(`/uploads/${b.id}/log`)}
                     onKeyDown={(event) => {
                       if (event.target !== event.currentTarget) return;
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      navigate(`/uploads/${b.uploadId}`);
+                      navigate(`/uploads/${b.id}/log`);
                     }}
                     tabIndex={0}
                     role="link"
-                    title="Открыть загрузку"
-                    aria-label="Открыть загрузку"
+                    title="Открыть журнал пачки"
+                    aria-label="Открыть журнал пачки"
                   >
                     <td className="py-3 pr-4 font-mono text-[12px]" style={{ fontWeight: 500 }}>{b.id}</td>
                     <td className="py-3 pr-4 text-muted-foreground font-mono text-[12px]">{b.date}</td>
@@ -281,8 +289,8 @@ export function UploadHistoryPage() {
                     <td className="py-3 pr-4 text-center">{b.files}</td>
                     <td className="py-3 pr-4 text-muted-foreground max-w-[260px] truncate">{b.fileTypes}</td>
                     <td className="py-3 pr-4">
-                      <Label theme={(uploadStatusLabels[b.status as keyof typeof uploadStatusLabels] ?? uploadStatusLabels.success).theme}>
-                        {(uploadStatusLabels[b.status as keyof typeof uploadStatusLabels] ?? uploadStatusLabels.success).text}
+                      <Label theme={getUploadStatusLabel(b.status).theme}>
+                        {getUploadStatusLabel(b.status).text}
                       </Label>
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">{b.rows}</td>
@@ -317,12 +325,12 @@ export function UploadHistoryPage() {
                             Обработка
                           </span>
                         </Button>
-                        {(b.status === "queued" || b.status === "processing" || b.status === "cancelling") && (
+                        {isActiveProcessingStatus(b.status) && (
                           <Button
                             view="outlined"
                             size="s"
                             className="text-[12px] h-7"
-                            loading={stopProcessing.loading}
+                            loading={stopProcessing.loading && actingBatchId === b.id}
                             onClick={(event) => {
                               event.stopPropagation();
                               void stopBatchProcessing(b.id);
@@ -334,12 +342,12 @@ export function UploadHistoryPage() {
                             </span>
                           </Button>
                         )}
-                        {(b.status === "failed" || b.status === "cancelled" || b.status === "stale") && (
+                        {isRetryableProcessingStatus(b.status) && (
                           <Button
                             view="outlined"
                             size="s"
                             className="text-[12px] h-7"
-                            loading={retryProcessing.loading}
+                            loading={retryProcessing.loading && actingBatchId === b.id}
                             onClick={(event) => {
                               event.stopPropagation();
                               void retryBatchProcessing(b.id);
@@ -376,4 +384,12 @@ export function UploadHistoryPage() {
       </div>
     </div>
   );
+}
+
+function matchesStatusFilter(status: string, filter: string) {
+  if (filter === "error") return ["error", "failed", "stale"].includes(status);
+  if (filter === "processing") return ["queued", "processing", "cancelling"].includes(status);
+  if (filter === "success") return ["success", "done"].includes(status);
+  if (filter === "warning") return ["warning", "done_with_warnings"].includes(status);
+  return status === filter;
 }

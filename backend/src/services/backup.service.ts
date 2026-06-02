@@ -1,14 +1,19 @@
 import { ObjectId } from "mongodb";
 
+import { deleteBackupPayload, storeBackupPayload } from "../db/backup-payloads.js";
 import {
+  BACKUP_CONTENT_ENCODING,
+  BACKUP_CONTENT_TYPE,
   assertValidBackupPayload,
   buildBackupFileName,
   createBackupEnvelope,
   getPayloadSizeBytes,
+  getBackupHistoryExport,
   importBackupEnvelope,
   insertBackupHistory,
   listBackupHistory,
   recordBackupAudit,
+  serializeBackupEnvelope,
   validateBackupPayload,
   type BackupEnvelope,
 } from "../queries/backup.queries.js";
@@ -31,21 +36,38 @@ export async function exportBackup(actor: AuthUser) {
   const now = new Date();
   const envelope = await createBackupEnvelope(actor, now);
   const fileName = buildBackupFileName(now);
-  const sizeBytes = getPayloadSizeBytes(envelope);
-
-  await insertBackupHistory({
-    operation: "export",
-    status: "success",
-    fileName,
-    sizeBytes,
-    collectionCounts: envelope.meta.counts,
-    backupVersion: String(envelope.meta.version),
-    actorUserId: new ObjectId(actor._id),
-    actorName: actorName(actor),
+  const historyId = new ObjectId();
+  const { buffer, sizeBytes, compressedSizeBytes } = await serializeBackupEnvelope(envelope);
+  const payloadFileId = await storeBackupPayload(fileName, buffer, {
+    historyId,
+    format: envelope.meta.format,
+    version: envelope.meta.version,
+    createdAt: now,
   });
+
+  try {
+    await insertBackupHistory({
+      _id: historyId,
+      operation: "export",
+      status: "success",
+      fileName,
+      sizeBytes,
+      compressedSizeBytes,
+      payloadFileId,
+      contentType: BACKUP_CONTENT_TYPE,
+      contentEncoding: BACKUP_CONTENT_ENCODING,
+      collectionCounts: envelope.meta.counts,
+      backupVersion: String(envelope.meta.version),
+      actorUserId: new ObjectId(actor._id),
+      actorName: actorName(actor),
+    });
+  } catch (error) {
+    await deleteBackupPayload(payloadFileId).catch(() => undefined);
+    throw error;
+  }
   await recordBackupAudit(actor, "export", "success", { fileName, sizeBytes, collectionCounts: envelope.meta.counts });
 
-  return { fileName, envelope };
+  return { fileName, buffer, contentType: BACKUP_CONTENT_TYPE };
 }
 
 export async function validateBackup(payload: unknown, actor: AuthUser, options: { fileName?: string } = {}) {
@@ -72,6 +94,12 @@ export async function validateBackup(payload: unknown, actor: AuthUser, options:
 
 export async function getBackupHistory(limit?: number) {
   return listBackupHistory(limit);
+}
+
+export async function exportBackupHistoryRecord(id: string) {
+  const backup = await getBackupHistoryExport(id);
+  if (!backup) throw new BackupError("Сохраненный файл бэкапа для этой записи истории недоступен", 404);
+  return backup;
 }
 
 export async function importBackup(payload: unknown, actor: AuthUser, options: { fileName?: string; confirmOverwrite?: boolean } = {}) {

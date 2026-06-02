@@ -7,10 +7,20 @@ import { asyncHandler } from "../middleware/async-handler.js";
 import { deleteClusteringRun, getRunWithSessions } from "../queries/clustering.queries.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { recordRequestAuditEvent } from "../services/audit.service.js";
-import { createClusteringRun, type ClusteringRunInput } from "../services/clustering.service.js";
+import { createClusteringRun, getClusteringPreview, type ClusteringRunInput } from "../services/clustering.service.js";
 import { serializeDocument } from "../utils/query.js";
 
 export const clusteringRouter = Router();
+
+clusteringRouter.post(
+  "/clustering-runs/preview",
+  auth,
+  asyncHandler(async (req, res) => {
+    const input = req.body as ClusteringRunInput;
+    const preview = await getClusteringPreview(input);
+    res.json(preview);
+  }),
+);
 
 clusteringRouter.post(
   "/clustering-runs/run",

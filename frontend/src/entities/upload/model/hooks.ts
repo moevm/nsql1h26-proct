@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type ListResponse } from "../../../shared/api/client";
 import type { AnyRecord } from "../../types";
-import { mapUploadLogEntry, mapUploadsToBatches, mapUploadToBatch } from "./adapters";
-import type { ProcessingStatus, ProcessingStatusResponse } from "./types";
-
-const activeProcessingStatuses = new Set<ProcessingStatus>(["queued", "processing", "cancelling"]);
+import { activeProcessingStatuses, mapUploadLogEntry, mapUploadsToBatches, mapUploadToBatch } from "./adapters";
+import type { ProcessingStatusResponse } from "./types";
 
 export function useUploads(limit = 50) {
   const [items, setItems] = useState<AnyRecord[]>([]);

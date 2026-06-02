@@ -1,6 +1,10 @@
 import type { AnyRecord } from "../../types";
 import { formatDate, formatNumber } from "../../../shared/lib/format";
-import type { ProcessingLogRow, UploadBatch } from "./types";
+import type { ProcessingLogRow, ProcessingStatus, UploadBatch } from "./types";
+
+export const activeProcessingStatuses = new Set<ProcessingStatus>(["queued", "processing", "cancelling"]);
+export const retryableProcessingStatuses = new Set<ProcessingStatus>(["cancelled", "failed", "stale", "done", "done_with_warnings"]);
+export const terminalProcessingStatuses = new Set<ProcessingStatus>(["cancelled", "done", "done_with_warnings", "failed", "stale", "idle"]);
 
 function uploadFileTypes(row: AnyRecord) {
   const files = (row.files ?? {}) as Record<string, AnyRecord>;
@@ -9,29 +13,41 @@ function uploadFileTypes(row: AnyRecord) {
     .filter(Boolean);
 }
 
-function uploadStatus(row: AnyRecord): UploadBatch["status"] {
+export function uploadStatus(row: AnyRecord): UploadBatch["status"] {
   const processingState = (row.processingState ?? {}) as AnyRecord;
   const processingStatus = String(processingState.status ?? "");
-  if (["queued", "processing", "cancelling", "cancelled", "failed", "stale"].includes(processingStatus)) {
+  if (["queued", "processing", "cancelling", "cancelled", "failed", "stale", "done", "done_with_warnings"].includes(processingStatus)) {
     return processingStatus as UploadBatch["status"];
   }
   const status = String(row.status ?? "success");
   const summary = (row.summary ?? {}) as AnyRecord;
   const errorCount = Number(row.errorCount ?? summary.errorCount ?? 0);
-  if (status === "failed" || status === "error" || status === "stale") return "error";
+  if (status === "failed" || status === "error" || status === "stale") return status === "failed" || status === "stale" ? status : "error";
+  if (status === "done") return "done";
+  if (status === "done_with_warnings") return "done_with_warnings";
   if (status === "pending") return "pending";
   if (status === "processing") return "processing";
   if (status === "cancelled") return "cancelled";
   if (status.includes("warning") || errorCount > 0) return "warning";
-  return "success";
+  if (status === "success" || !status) return "success";
+  return "unknown";
 }
 
-function statusPriority(status: UploadBatch["status"]) {
+export function statusPriority(status: UploadBatch["status"]) {
   if (status === "error" || status === "failed" || status === "stale") return 4;
   if (status === "processing" || status === "queued" || status === "cancelling") return 3;
   if (status === "warning" || status === "done_with_warnings" || status === "cancelled") return 2;
   if (status === "pending" || status === "idle") return 1;
   return 0;
+}
+
+export function isActiveProcessingStatus(status: string | undefined) {
+  return activeProcessingStatuses.has(status as ProcessingStatus);
+}
+
+export function isRetryableProcessingStatus(status: string | undefined, uploadStatusValue?: string) {
+  if (retryableProcessingStatuses.has(status as ProcessingStatus)) return true;
+  return status === "idle" && ["done", "done_with_warnings", "failed"].includes(String(uploadStatusValue ?? ""));
 }
 
 export function mapUploadToBatch(row: AnyRecord): UploadBatch {

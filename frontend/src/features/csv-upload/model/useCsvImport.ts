@@ -14,6 +14,16 @@ export type CsvImportResult = {
   errors: Array<{ line: number; message: string }>;
 };
 
+type CsvImportScopeState = {
+  statuses: Record<CsvKind, UploadStatus>;
+  results: Partial<Record<CsvKind, CsvImportResult>>;
+};
+
+type CsvImportStorageState = {
+  transient: CsvImportScopeState;
+  batches: Record<string, CsvImportScopeState>;
+};
+
 const initialStatuses: Record<CsvKind, UploadStatus> = {
   students: "empty",
   sessions: "empty",
@@ -23,32 +33,39 @@ const initialStatuses: Record<CsvKind, UploadStatus> = {
 
 const storageKey = "csv-import-state";
 
-export function useCsvImport() {
-  const saved = readSavedState();
-  const [statuses, setStatuses] = useState<Record<CsvKind, UploadStatus>>(saved.statuses);
-  const [results, setResults] = useState<Partial<Record<CsvKind, CsvImportResult>>>(saved.results);
-  const [errors, setErrors] = useState<Partial<Record<CsvKind, string>>>({});
+export function useCsvImport(activeBatchId?: string) {
+  const [state, setState] = useState<CsvImportStorageState>(() => readSavedState());
+  const [errors, setErrors] = useState<Record<string, Partial<Record<CsvKind, string>>>>({});
+  const scopeKey = activeBatchId || "transient";
+  const scopeState = getScopeState(state, activeBatchId);
+  const scopeErrors = errors[scopeKey] ?? {};
 
   useEffect(() => {
-    sessionStorage.setItem(storageKey, JSON.stringify({ statuses, results }));
-  }, [results, statuses]);
+    sessionStorage.setItem(storageKey, JSON.stringify(state));
+  }, [state]);
 
   async function uploadCsv(kind: CsvKind, file?: File, batchId?: string) {
     if (!file) return undefined;
     const formData = new FormData();
     formData.append("file", file);
     if (batchId) formData.append("batchId", batchId);
-    setStatuses((next) => ({ ...next, [kind]: "uploading" }));
-    setErrors((next) => ({ ...next, [kind]: "" }));
+    setState((next) => updateScope(next, batchId, (scope) => ({ ...scope, statuses: { ...scope.statuses, [kind]: "uploading" } })));
+    setErrors((next) => ({ ...next, [batchId || "transient"]: { ...(next[batchId || "transient"] ?? {}), [kind]: "" } }));
 
     try {
       const result = await api<CsvImportResult>(`/import/csv/${kind}`, { method: "POST", body: formData });
-      setResults((next) => ({ ...next, [kind]: result }));
-      setStatuses((next) => ({ ...next, [kind]: "uploaded" }));
+      setState((next) => {
+        const updated = updateScope(next, result.importBatchId, (scope) => ({
+          ...scope,
+          results: { ...scope.results, [kind]: result },
+          statuses: { ...scope.statuses, [kind]: "uploaded" },
+        }));
+        return batchId ? updated : { ...updated, transient: normalizeScope() };
+      });
       return result;
     } catch (error) {
-      setErrors((next) => ({ ...next, [kind]: error instanceof Error ? error.message : "Ошибка загрузки CSV" }));
-      setStatuses((next) => ({ ...next, [kind]: "error" }));
+      setErrors((next) => ({ ...next, [batchId || "transient"]: { ...(next[batchId || "transient"] ?? {}), [kind]: error instanceof Error ? error.message : "Ошибка загрузки CSV" } }));
+      setState((next) => updateScope(next, batchId, (scope) => ({ ...scope, statuses: { ...scope.statuses, [kind]: "error" } })));
       return undefined;
     }
   }
@@ -57,16 +74,64 @@ export function useCsvImport() {
     return downloadApiFile(`/import/templates/${kind}.csv`, `${kind}_template.csv`);
   }
 
-  return { statuses, results, errors, uploadCsv, downloadTemplate };
+  function resetImportState(options: { all?: boolean } = {}) {
+    if (options.all) {
+      setState(createEmptyState());
+      setErrors({});
+      return;
+    }
+    setState((next) => updateScope(next, activeBatchId, () => normalizeScope()));
+    setErrors((next) => ({ ...next, [scopeKey]: {} }));
+  }
+
+  return { statuses: scopeState.statuses, results: scopeState.results, errors: scopeErrors, uploadCsv, downloadTemplate, resetImportState };
 }
 
-function readSavedState() {
+function readSavedState(): CsvImportStorageState {
   try {
     const raw = sessionStorage.getItem(storageKey);
-    if (!raw) return { statuses: initialStatuses, results: {} };
-    const parsed = JSON.parse(raw) as { statuses?: Record<CsvKind, UploadStatus>; results?: Partial<Record<CsvKind, CsvImportResult>> };
-    return { statuses: parsed.statuses ?? initialStatuses, results: parsed.results ?? {} };
+    if (!raw) return createEmptyState();
+    const parsed = JSON.parse(raw) as Partial<CsvImportStorageState> & { statuses?: Record<CsvKind, UploadStatus>; results?: Partial<Record<CsvKind, CsvImportResult>> };
+    if (parsed.statuses || parsed.results) {
+      return {
+        transient: normalizeScope({ statuses: parsed.statuses, results: parsed.results }),
+        batches: {},
+      };
+    }
+    return {
+      transient: normalizeScope(parsed.transient),
+      batches: Object.fromEntries(Object.entries(parsed.batches ?? {}).map(([id, scope]) => [id, normalizeScope(scope)])),
+    };
   } catch {
-    return { statuses: initialStatuses, results: {} };
+    return createEmptyState();
   }
+}
+
+function createEmptyState(): CsvImportStorageState {
+  return { transient: normalizeScope(), batches: {} };
+}
+
+function normalizeScope(scope?: Partial<CsvImportScopeState>): CsvImportScopeState {
+  return {
+    statuses: { ...initialStatuses, ...(scope?.statuses ?? {}) },
+    results: scope?.results ?? {},
+  };
+}
+
+function getScopeState(state: CsvImportStorageState, batchId?: string): CsvImportScopeState {
+  if (!batchId) return state.transient;
+  return state.batches[batchId] ?? normalizeScope();
+}
+
+function updateScope(state: CsvImportStorageState, batchId: string | undefined, updater: (scope: CsvImportScopeState) => CsvImportScopeState): CsvImportStorageState {
+  if (!batchId) {
+    return { ...state, transient: updater(state.transient) };
+  }
+  return {
+    ...state,
+    batches: {
+      ...state.batches,
+      [batchId]: updater(state.batches[batchId] ?? normalizeScope()),
+    },
+  };
 }

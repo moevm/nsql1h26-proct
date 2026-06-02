@@ -15,11 +15,13 @@ import {
 } from "lucide-react";
 import { Button, Label, Select, TextInput } from "@gravity-ui/uikit";
 import { useLatestUpload, useProcessingStatus, useRetryProcessing, useStartProcessing, useStopProcessing } from "../entities/upload/model/hooks";
-import type { ProcessingLogRow, ProcessingStageState, ProcessingState, ProcessingStatus } from "../entities/upload/model/types";
+import type { ProcessingLogRow, ProcessingStageState, ProcessingState } from "../entities/upload/model/types";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { formatDate, formatNumber } from "../shared/lib/format";
 import { dateFilterValue, matchesDateRange, matchesNumberRange } from "../shared/lib/clientFilters";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { getUploadStatusLabel } from "../shared/config/ui";
+import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 
 const levelConfig = {
   info: { theme: "info" as const, label: "info" },
@@ -33,20 +35,6 @@ const entityLabels: Record<ProcessingLogRow["entityType"], string> = {
   camera: "Запись камеры",
 };
 
-const statusLabels: Record<ProcessingStatus | string, { theme: "normal" | "info" | "success" | "warning" | "danger"; text: string }> = {
-  idle: { theme: "normal", text: "Ожидает обработки" },
-  queued: { theme: "info", text: "В очереди" },
-  processing: { theme: "info", text: "Обработка" },
-  cancelling: { theme: "warning", text: "Остановка" },
-  cancelled: { theme: "warning", text: "Остановлено" },
-  done: { theme: "success", text: "Завершено" },
-  done_with_warnings: { theme: "warning", text: "Завершено с предупреждениями" },
-  failed: { theme: "danger", text: "Ошибка" },
-  stale: { theme: "danger", text: "Зависло" },
-};
-
-const activeStatuses = new Set(["queued", "processing", "cancelling"]);
-
 function stageLabel(stage: ProcessingStageState) {
   if (stage.status === "done") return "Готово";
   if (stage.status === "running") return "Выполняется";
@@ -59,6 +47,7 @@ export function ProcessingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { upload: latestUpload, batch, loading: latestLoading } = useLatestUpload();
+  const hasSelectedUploadId = Boolean(searchParams.get("uploadId"));
   const selectedUploadId = searchParams.get("uploadId") ?? batch?.id ?? String(latestUpload?._id ?? "");
   const processingStatus = useProcessingStatus(selectedUploadId || undefined);
   const startProcessing = useStartProcessing();
@@ -80,9 +69,9 @@ export function ProcessingPage() {
   const processingState = upload?.processingState as ProcessingState | undefined;
   const processingStateStatus = String(processingState?.status ?? "idle");
   const uploadStatus = String(upload?.status ?? "");
-  const statusConfig = statusLabels[processingStateStatus] ?? statusLabels[String(upload?.status ?? "idle")] ?? { theme: "normal" as const, text: String(upload?.status ?? "Нет данных") };
-  const canStop = processingStateStatus === "queued" || processingStateStatus === "processing";
-  const canRetry = ["cancelled", "failed", "stale", "done", "done_with_warnings"].includes(processingStateStatus) || (processingStateStatus === "idle" && ["done", "done_with_warnings", "failed"].includes(uploadStatus));
+  const statusConfig = getUploadStatusLabel(processingStateStatus || uploadStatus || undefined);
+  const canStop = isActiveProcessingStatus(processingStateStatus) && processingStateStatus !== "cancelling";
+  const canRetry = isRetryableProcessingStatus(processingStateStatus, uploadStatus);
   const canStart = Boolean(selectedUploadId && processingStateStatus === "idle" && !canRetry);
   const isActionLoading = startProcessing.loading || stopProcessing.loading || retryProcessing.loading;
   const actionError = startProcessing.error || stopProcessing.error || retryProcessing.error || processingStatus.error;
@@ -92,18 +81,17 @@ export function ProcessingPage() {
   const rowsProcessed = fileRows.length ? fileRows.reduce((sum, rows) => sum + rows, 0) : Number(upload?.totalRows ?? 0);
   const sessionsBuilt = Number(uploadFiles.sessions?.rowsCount ?? 0);
   const unresolvedCount = processingStatus.unresolvedStudents.length || Number((upload?.unresolvedStudents as unknown[] | undefined)?.length ?? 0);
-  const studentsMatched = Math.max(0, Number(uploadFiles.students?.rowsCount ?? upload?.matchedStudents ?? 0) - unresolvedCount);
-  const warningCount = Math.max(
-    logEntries.filter((entry) => entry.level === "warn" || entry.level === "error").length,
-    unresolvedCount,
-    Number(upload?.errorCount ?? summary.errorCount ?? 0),
-  );
+  const studentsInDirectory = Number(uploadFiles.students?.rowsCount ?? upload?.matchedStudents ?? 0);
+  const logWarningCount = logEntries.filter((entry) => entry.level === "warn").length;
+  const errorCount = Math.max(logEntries.filter((entry) => entry.level === "error").length, Number(upload?.errorCount ?? summary.errorCount ?? 0));
 
   const kpis = [
     { label: "Строк обработано", value: formatNumber(rowsProcessed) },
     { label: "Сессий построено", value: formatNumber(sessionsBuilt) },
-    { label: "Студентов сопоставлено", value: formatNumber(studentsMatched) },
-    { label: "Предупреждения", value: formatNumber(warningCount) },
+    { label: "Студентов в справочнике", value: formatNumber(studentsInDirectory) },
+    { label: "Предупреждения журнала", value: formatNumber(logWarningCount) },
+    { label: "Ошибки", value: formatNumber(errorCount) },
+    { label: "Несопоставленные студенты", value: formatNumber(unresolvedCount) },
   ];
   const logFiles = [...new Set(logEntries.map((entry) => entry.file))];
   const logTimeFromValue = dateFilterValue(logTimeFrom);
@@ -220,7 +208,7 @@ export function ProcessingPage() {
         </div>
         {processingStateStatus === "stale" && (
           <div className="rounded-lg bg-destructive/5 border border-destructive/20 px-3 py-2 text-[13px] text-destructive">
-            Задача не обновлялась дольше ожидаемого времени. Можно остановить ее и запустить снова.
+            Задача не обновлялась дольше ожидаемого времени. Перезапустите обработку, чтобы создать новую попытку.
           </div>
         )}
         {processingState?.errorMessage && (
@@ -269,7 +257,7 @@ export function ProcessingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {kpis.map((k) => (
           <div key={k.label} className="bg-card rounded-xl border border-border p-4">
             <div className="text-[12px] text-muted-foreground mb-1">{k.label}</div>
@@ -287,17 +275,17 @@ export function ProcessingPage() {
               <span className="font-mono text-[12px] break-all text-right">{uploadId || "Нет данных"}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Файлов в последней пачке</span>
+              <span className="text-muted-foreground">{hasSelectedUploadId ? "Файлов в выбранной пачке" : "Файлов в последней пачке"}</span>
               <span style={{ fontWeight: 500 }}>{Number(upload?.filesCount ?? batch?.files ?? 0)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Типы файлов</span>
               <span className="text-right">{Object.keys((upload?.files ?? {}) as Record<string, unknown>).join(", ") || batch?.fileTypes || "Нет данных"}</span>
             </div>
-            {warningCount > 0 && (
+            {(logWarningCount + errorCount + unresolvedCount) > 0 && (
               <div className="flex items-center gap-2 rounded-lg bg-warning/5 px-3 py-2 text-warning">
                 <AlertTriangle className="w-4 h-4" />
-                <span>В последней загрузке есть предупреждения: {formatNumber(warningCount)}</span>
+                <span>{hasSelectedUploadId ? "В выбранной пачке" : "В последней загрузке"} есть предупреждения или ошибки: {formatNumber(logWarningCount + errorCount + unresolvedCount)}</span>
               </div>
             )}
           </div>

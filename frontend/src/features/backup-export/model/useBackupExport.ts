@@ -7,12 +7,21 @@ export function useBackupExport() {
   async function exportBackup() {
     setExporting(true);
     try {
-      const fileName = `backup_proctoring_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      const fileName = `backup_proctoring_${new Date().toISOString().replace(/[:.]/g, "-")}.json.gz`;
       await downloadApiFile("/backup/export", fileName);
     } finally {
       setExporting(false);
     }
   }
 
-  return { exporting, exportBackup };
+  async function exportHistoryBackup(id: string, fileName: string) {
+    setExporting(true);
+    try {
+      await downloadApiFile(`/backup/history/${id}/export`, fileName);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return { exporting, exportBackup, exportHistoryBackup };
 }
