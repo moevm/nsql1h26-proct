@@ -9,6 +9,8 @@ import { recordRequestAuditEvent } from "../services/audit.service.js";
 import { login } from "../services/auth.service.js";
 
 export const authRouter = Router();
+const AUTH_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax" as const };
+const AUTH_COOKIE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 function readLogoutUser(req: Parameters<typeof readToken>[0]) {
   const token = readToken(req);
@@ -24,7 +26,7 @@ function readLogoutUser(req: Parameters<typeof readToken>[0]) {
 authRouter.post(
   "/auth/login",
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body as { email?: string; password?: string };
+    const { email, password, remember } = req.body as { email?: string; password?: string; remember?: boolean };
     const result = await login(email, password);
     if (!result) {
       await recordRequestAuditEvent(req, undefined, {
@@ -43,7 +45,11 @@ authRouter.post(
       details: { email: result.user.email, role: result.user.role },
     });
 
-    res.cookie("token", result.token, { httpOnly: true, sameSite: "lax" });
+    if (remember) {
+      res.cookie("token", result.token, { ...AUTH_COOKIE_OPTIONS, maxAge: AUTH_COOKIE_MAX_AGE_MS });
+    } else {
+      res.clearCookie("token", AUTH_COOKIE_OPTIONS);
+    }
     res.json(result);
   }),
 );
@@ -55,7 +61,7 @@ authRouter.post("/auth/logout", asyncHandler(async (req, res) => {
     entityType: user ? "user" : "auth",
     entityId: user?._id,
   });
-  res.clearCookie("token");
+  res.clearCookie("token", AUTH_COOKIE_OPTIONS);
   res.json({ ok: true });
 }));
 

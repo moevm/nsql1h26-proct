@@ -5,7 +5,7 @@ import { User } from "../../entities/types";
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -26,12 +26,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
-      async login(email, password) {
+      async login(email, password, remember = false) {
         const result = await api<{ token: string; user: User }>("/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, remember }),
         });
-        setToken(result.token);
+        setToken(result.token, remember);
         setUser(result.user);
       },
       async logout() {
