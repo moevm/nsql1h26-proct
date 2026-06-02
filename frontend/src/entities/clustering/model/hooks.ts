@@ -40,9 +40,19 @@ export function useClusteringRuns(options: PaginationOptions = 50) {
   return { items, runs: useMemo(() => items.map(mapRunToHistoryRow), [items]), total: meta.total, page: meta.page, limit: meta.limit, loading, deleteRun, refetch: () => setReloadKey((key) => key + 1) };
 }
 
-export function useClusteringResult(runId: string | undefined) {
+type ClusteringResultOptions = Record<string, string | number | undefined>;
+
+export function useClusteringResult(runId: string | undefined, options: ClusteringResultOptions = {}) {
   const [result, setResult] = useState<AnyRecord | undefined>();
   const [loading, setLoading] = useState(Boolean(runId));
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(options)) {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    }
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : "";
+  }, [options]);
 
   useEffect(() => {
     if (!runId) {
@@ -51,11 +61,11 @@ export function useClusteringResult(runId: string | undefined) {
       return;
     }
     setLoading(true);
-    void api<AnyRecord>(`/results/${runId}`)
+    void api<AnyRecord>(`/results/${runId}${query}`)
       .then(setResult)
       .catch(() => setResult(undefined))
       .finally(() => setLoading(false));
-  }, [runId]);
+  }, [query, runId]);
 
   return { result, sessions: useMemo(() => mapResultToSessionRows(result), [result]), loading };
 }

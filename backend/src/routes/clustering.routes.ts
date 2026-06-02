@@ -8,9 +8,14 @@ import { deleteClusteringRun, getRunWithSessions } from "../queries/clustering.q
 import type { AuthUser } from "../schema/user.schema.js";
 import { recordRequestAuditEvent } from "../services/audit.service.js";
 import { createClusteringRun, getClusteringPreview, type ClusteringRunInput } from "../services/clustering.service.js";
-import { serializeDocument } from "../utils/query.js";
+import { getQuery, serializeDocument } from "../utils/query.js";
 
 export const clusteringRouter = Router();
+
+function numericQuery(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 clusteringRouter.post(
   "/clustering-runs/preview",
@@ -55,7 +60,25 @@ clusteringRouter.get(
   "/results/:runId",
   auth,
   asyncHandler(async (req, res) => {
-    const data = await getRunWithSessions(String(req.params.runId));
+    const data = await getRunWithSessions(String(req.params.runId), {
+      sessionsPage: numericQuery(req.query.sessionsPage),
+      sessionsLimit: numericQuery(req.query.sessionsLimit),
+      clustersPage: numericQuery(req.query.clustersPage),
+      clustersLimit: numericQuery(req.query.clustersLimit),
+      sessionSearch: getQuery(req.query, "sessionSearch"),
+      sessionCluster: getQuery(req.query, "sessionCluster"),
+      sessionStatus: getQuery(req.query, "sessionStatus"),
+      sessionDateFrom: getQuery(req.query, "sessionDateFrom"),
+      sessionDateTo: getQuery(req.query, "sessionDateTo"),
+      distanceMin: numericQuery(req.query.distanceMin),
+      distanceMax: numericQuery(req.query.distanceMax),
+      clusterId: getQuery(req.query, "clusterId"),
+      clusterSizeMin: numericQuery(req.query.clusterSizeMin),
+      clusterSizeMax: numericQuery(req.query.clusterSizeMax),
+      clusterCentroid: getQuery(req.query, "clusterCentroid"),
+      clusterAnomalyMin: numericQuery(req.query.clusterAnomalyMin),
+      clusterAnomalyMax: numericQuery(req.query.clusterAnomalyMax),
+    });
     if (!data) {
       res.status(404).json({ message: "Запуск не найден" });
       return;
@@ -63,8 +86,11 @@ clusteringRouter.get(
 
     res.json({
       run: serializeDocument(data.run),
+      assignments: serializeDocument(data.assignments),
+      clusters: serializeDocument(data.clusters),
       sessions: serializeDocument(data.sessions),
       students: serializeDocument(data.students),
+      pagination: data.pagination,
     });
   }),
 );
