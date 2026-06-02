@@ -4,9 +4,15 @@ import { Avatar, Button } from "@gravity-ui/uikit";
 import { navItems } from "../../shared/config/navigation";
 import { useAuth } from "../../app/providers/AuthProvider";
 
+const roleLabels = {
+  admin: "Администратор",
+  teacher: "Преподаватель",
+} as const;
+
 export function AppLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
+  const visibleNavItems = navItems.filter((item) => !item.roles?.length || (user?.role && item.roles.includes(user.role)));
   const initials = user?.fullName
     ? user.fullName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase()
     : "U";
@@ -27,7 +33,7 @@ export function AppLayout() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = location.pathname === item.path ||
               (item.path === "/results" && location.pathname === "/") ||
               (item.path === "/upload" && location.pathname === "/uploads") ||
@@ -54,7 +60,7 @@ export function AppLayout() {
             <Avatar text={initials} size="s" />
             <div className="flex-1 min-w-0">
               <div className="text-[12px] text-white truncate">{user?.fullName ?? "Пользователь"}</div>
-              <div className="text-[11px] text-sidebar-foreground/50 truncate">{user?.role ?? "роль"}</div>
+              <div className="text-[11px] text-sidebar-foreground/50 truncate">{user?.role ? roleLabels[user.role] : "роль"}</div>
             </div>
           </div>
           <button

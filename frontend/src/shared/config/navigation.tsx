@@ -10,7 +10,6 @@ export type NavItem = {
 };
 
 export const navItems: NavItem[] = [
-  { label: "Дашборд", icon: LayoutDashboard, path: "/results" },
   { label: "Загрузка данных", icon: Upload, path: "/upload" },
   { label: "История загрузок", icon: FileStack, path: "/upload-history" },
   { label: "Студенты", icon: Users, path: "/students" },
@@ -22,7 +21,7 @@ export const navItems: NavItem[] = [
   { label: "Результаты", icon: BarChart3, path: "/results" },
   { label: "Статистика", icon: BarChart3, path: "/statistics" },
   { label: "Отчёты", icon: FileText, path: "/reports" },
-  { label: "Резервное копирование", icon: HardDrive, path: "/backup" },
+  { label: "Резервное копирование", icon: HardDrive, path: "/backup", roles: ["admin"] },
   { label: "Пользователи", icon: Users, path: "/users", roles: ["admin"] },
   { label: "Вузы", icon: Building2, path: "/universities", roles: ["admin"] },
   { label: "Аудит", icon: ListTree, path: "/audit", roles: ["admin"] },
