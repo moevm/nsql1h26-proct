@@ -14,7 +14,7 @@ import { StatisticsPage } from "../../pages/StatisticsPage";
 import { UploadLogPage } from "../../pages/UploadLogPage";
 import { UploadHistoryPage } from "../../pages/UploadHistoryPage";
 import { UploadsPage } from "../../pages/UploadsPage";
-import { ProtectedRoute, RootRedirect } from "./ProtectedRoute";
+import { ProtectedRoute, RoleGuard, RootRedirect } from "./ProtectedRoute";
 
 export function AppRouter() {
   return (
@@ -45,13 +45,13 @@ export function AppRouter() {
           <Route path="/results/:runId" element={<ResultsPage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/backup" element={<BackupPage />} />
-          <Route path="/users" element={<EntityPage name="users" />} />
-          <Route path="/users/:id" element={<EntityDetailsPage name="users" />} />
-          <Route path="/universities" element={<EntityPage name="universities" />} />
-          <Route path="/universities/:id" element={<EntityDetailsPage name="universities" />} />
-          <Route path="/audit" element={<EntityPage name="audit" />} />
-          <Route path="/audit/:id" element={<EntityDetailsPage name="audit" />} />
+          <Route path="/backup" element={<RoleGuard roles={["admin"]}><BackupPage /></RoleGuard>} />
+          <Route path="/users" element={<RoleGuard roles={["admin"]}><EntityPage name="users" /></RoleGuard>} />
+          <Route path="/users/:id" element={<RoleGuard roles={["admin"]}><EntityDetailsPage name="users" /></RoleGuard>} />
+          <Route path="/universities" element={<RoleGuard roles={["admin"]}><EntityPage name="universities" /></RoleGuard>} />
+          <Route path="/universities/:id" element={<RoleGuard roles={["admin"]}><EntityDetailsPage name="universities" /></RoleGuard>} />
+          <Route path="/audit" element={<RoleGuard roles={["admin"]}><EntityPage name="audit" /></RoleGuard>} />
+          <Route path="/audit/:id" element={<RoleGuard roles={["admin"]}><EntityDetailsPage name="audit" /></RoleGuard>} />
           <Route path="/settings" element={<div className="flex items-center justify-center h-64 text-muted-foreground">Settings page coming soon</div>} />
         </Route>
       </Route>

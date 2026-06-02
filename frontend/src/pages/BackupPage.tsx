@@ -1,14 +1,78 @@
-import { ChangeEvent, useRef, useState } from "react";
-import { HardDrive, Download, Upload, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { HardDrive, Download, Upload, CheckCircle2, AlertTriangle, Clock, XCircle } from "lucide-react";
 import { Button, Label } from "@gravity-ui/uikit";
 import { api } from "../shared/api/client";
 import { useBackupExport } from "../features/backup-export/model/useBackupExport";
+import { formatDate, formatNumber } from "../shared/lib/format";
+
+type BackupOperation = "export" | "import" | "validate";
+type BackupStatus = "success" | "failed";
+
+interface BackupHistoryRecord {
+  _id?: string;
+  operation: BackupOperation;
+  status: BackupStatus;
+  fileName: string;
+  sizeBytes: number;
+  collectionCounts: Record<string, number>;
+  backupVersion?: string;
+  actorName: string;
+  createdAt: string;
+  errorMessage?: string;
+}
+
+interface BackupValidationResult {
+  valid: boolean;
+  counts: Record<string, number>;
+  errors: string[];
+  warnings: string[];
+}
+
+const operationLabels: Record<BackupOperation, string> = {
+  export: "Экспорт",
+  import: "Импорт",
+  validate: "Проверка",
+};
+
+function formatBytes(value: unknown) {
+  const bytes = Number(value ?? 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+}
 
 export function BackupPage() {
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [history, setHistory] = useState<BackupHistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const { exporting, lastExportedAt, lastFileName, exportBackup } = useBackupExport();
+  const { exporting, exportBackup } = useBackupExport();
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const data = await api<{ items: BackupHistoryRecord[] }>("/backup/history");
+      setHistory(data.items);
+    } catch (error) {
+      setHistory([]);
+      setHistoryError(error instanceof Error ? error.message : "Не удалось загрузить историю бэкапов");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  async function handleExport() {
+    await exportBackup();
+    await loadHistory();
+  }
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -17,13 +81,33 @@ export function BackupPage() {
     setImporting(true);
     setImportStatus(null);
     try {
-      const payload = JSON.parse(await file.text()) as Record<string, unknown[]>;
       const formData = new FormData();
       formData.append("file", file);
-      await api("/backup/import", { method: "POST", body: formData });
+      const validation = await api<BackupValidationResult>("/backup/validate", { method: "POST", body: formData });
+      if (!validation.valid) {
+        setImportStatus(`Бэкап не прошел проверку: ${validation.errors.join("; ")}`);
+        await loadHistory();
+        return;
+      }
+
+      const totalRows = Object.values(validation.counts ?? {}).reduce((sum, count) => sum + Number(count ?? 0), 0);
+      const confirmed = window.confirm(
+        `Восстановить базу из файла ${file.name}?\n\nТекущие данные будут полностью перезаписаны. В бэкапе найдено записей: ${formatNumber(totalRows)}.`,
+      );
+      if (!confirmed) {
+        setImportStatus("Импорт отменен пользователем");
+        await loadHistory();
+        return;
+      }
+
+      const importFormData = new FormData();
+      importFormData.append("file", file);
+      await api("/backup/import?confirmOverwrite=true", { method: "POST", body: importFormData });
       setImportStatus("Бэкап импортирован");
+      await loadHistory();
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Не удалось импортировать бэкап");
+      await loadHistory();
     } finally {
       setImporting(false);
     }
@@ -54,11 +138,11 @@ export function BackupPage() {
             <div><h3 className="text-[15px]" style={{ fontWeight: 600 }}>Экспорт всей базы</h3><p className="text-[12px] text-muted-foreground">Скачать полный дамп всех данных</p></div>
           </div>
           <div className="space-y-2 text-[13px]">
-            <div className="flex justify-between"><span className="text-muted-foreground">Формат</span><span style={{ fontWeight: 500 }}>JSON.GZ (сжатый)</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Формат</span><span style={{ fontWeight: 500 }}>JSON</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Включает</span><span style={{ fontWeight: 500 }}>Загрузки, сессии, кластеры, отчёты</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Источник</span><span style={{ fontWeight: 500 }}>Текущая MongoDB</span></div>
           </div>
-          <Button view="action" width="max" className="h-10" loading={exporting} onClick={() => void exportBackup()}>
+          <Button view="action" width="max" className="h-10" loading={exporting} onClick={() => void handleExport()}>
             <span className="flex items-center gap-1.5"><Download className="w-4 h-4" />{exporting ? "Формирование..." : "Экспорт всей базы"}</span>
           </Button>
         </div>
@@ -69,7 +153,7 @@ export function BackupPage() {
             <div><h3 className="text-[15px]" style={{ fontWeight: 600 }}>Импорт из файла</h3><p className="text-[12px] text-muted-foreground">Восстановить базу из бэкапа</p></div>
           </div>
           <div className="space-y-2 text-[13px]">
-            <div className="flex justify-between"><span className="text-muted-foreground">Поддерживаемые форматы</span><span style={{ fontWeight: 500 }}>JSON.GZ, JSON</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Поддерживаемый формат</span><span style={{ fontWeight: 500 }}>JSON</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Действие</span><span className="text-warning" style={{ fontWeight: 500 }}>Перезапись всех данных</span></div>
           </div>
           <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-warning/40 transition-colors cursor-pointer">
@@ -83,20 +167,55 @@ export function BackupPage() {
       </div>
 
       <div className="bg-card rounded-xl border border-border p-5">
-        <div className="flex items-center gap-2 mb-4"><Clock className="w-4 h-4 text-muted-foreground" /><h3 className="text-[15px]" style={{ fontWeight: 600 }}>Текущий экспорт</h3></div>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-[15px]" style={{ fontWeight: 600 }}>История бэкапов</h3>
+          </div>
+          <Button view="flat" size="s" className="text-[12px]" onClick={() => void loadHistory()} loading={historyLoading}>
+            Обновить
+          </Button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
-            <thead><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Файл</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Создан</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Автор</th><th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Статус</th></tr></thead>
+            <thead>
+              <tr className="border-b border-border text-muted-foreground text-left">
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Файл</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Дата</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Размер</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Автор</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Операция</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Статус</th>
+                <th className="pb-3" style={{ fontWeight: 500 }}>Детали</th>
+              </tr>
+            </thead>
             <tbody>
-              {!lastFileName ? (
-                <tr><td colSpan={4} className="py-10 text-center text-muted-foreground">История бэкапов пока не хранится. После экспорта здесь появится файл текущей сессии.</td></tr>
+              {historyLoading ? (
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">Загрузка истории...</td></tr>
+              ) : historyError ? (
+                <tr><td colSpan={7} className="py-10 text-center text-destructive">{historyError}</td></tr>
+              ) : history.length === 0 ? (
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">История бэкапов пока пуста</td></tr>
               ) : (
-                <tr className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                  <td className="py-3 pr-4"><code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{lastFileName}</code></td>
-                  <td className="py-3 pr-4 font-mono text-[12px] text-muted-foreground">{lastExportedAt}</td>
-                  <td className="py-3 pr-4">Система</td>
-                  <td className="py-3 pr-4"><Label theme="success" icon={<CheckCircle2 className="w-3 h-3" />}>Готово</Label></td>
-                </tr>
+                history.map((item) => (
+                  <tr key={item._id ?? `${item.operation}-${item.createdAt}-${item.fileName}`} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
+                    <td className="py-3 pr-4"><code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{item.fileName}</code></td>
+                    <td className="py-3 pr-4 font-mono text-[12px] text-muted-foreground">{formatDate(item.createdAt)}</td>
+                    <td className="py-3 pr-4 text-muted-foreground">{formatBytes(item.sizeBytes)}</td>
+                    <td className="py-3 pr-4">{item.actorName}</td>
+                    <td className="py-3 pr-4">{operationLabels[item.operation] ?? item.operation}</td>
+                    <td className="py-3 pr-4">
+                      {item.status === "success" ? (
+                        <Label theme="success" icon={<CheckCircle2 className="w-3 h-3" />}>Готово</Label>
+                      ) : (
+                        <Label theme="danger" icon={<XCircle className="w-3 h-3" />}>Ошибка</Label>
+                      )}
+                    </td>
+                    <td className="py-3 text-muted-foreground max-w-[320px] truncate" title={item.errorMessage || undefined}>
+                      {item.errorMessage || `Коллекций: ${Object.keys(item.collectionCounts ?? {}).length}`}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
