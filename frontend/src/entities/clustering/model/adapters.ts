@@ -3,6 +3,22 @@ import { formatDate, formatDateOnly, formatDuration } from "../../../shared/lib/
 import { getNested } from "../../../shared/lib/object";
 import type { ClusterRunHistoryRow, DrawerMetric, ResultSessionRow } from "./types";
 
+function subsetLabel(filters: AnyRecord, results: AnyRecord) {
+  if (filters.label) return String(filters.label);
+  const parts: string[] = [];
+  const batchIds = Array.isArray(filters.batchIds) ? filters.batchIds : [];
+  if (batchIds.length) parts.push(`Пачек: ${batchIds.length}`);
+  else parts.push("Все доступные сессии");
+  if (filters.examName) parts.push(`Экзамен: ${filters.examName}`);
+  if (filters.courseName) parts.push(`Курс: ${filters.courseName}`);
+  if (filters.group) parts.push(`Группа: ${filters.group}`);
+  if (filters.program) parts.push(`Программа: ${filters.program}`);
+  if (filters.educationLevel) parts.push(`Уровень: ${filters.educationLevel}`);
+  if (filters.dateFrom || filters.dateTo) parts.push(`Период: ${filters.dateFrom ?? "начало"} — ${filters.dateTo ?? "сейчас"}`);
+  if (results.totalSessions !== undefined) parts.push(`Сессий: ${results.totalSessions}`);
+  return parts.join(" · ");
+}
+
 export function mapRunToHistoryRow(row: AnyRecord): ClusterRunHistoryRow {
   const status = String(row.status ?? "done");
   const algorithm = String(row.algorithm ?? "kmeans") === "dbscan" ? "DBSCAN" : "K-Means";
@@ -27,7 +43,7 @@ export function mapRunToHistoryRow(row: AnyRecord): ClusterRunHistoryRow {
     clusters: Number(results.clusterCount ?? 0),
     anomalies: Number(results.anomalyCount ?? 0),
     status: status === "running" ? "running" : status === "error" ? "error" : "success",
-    subset: String(filters.label ?? filters.examName ?? "Все доступные сессии"),
+    subset: subsetLabel(filters, results),
   };
 }
 

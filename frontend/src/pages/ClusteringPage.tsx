@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play, RotateCcw, CheckCircle2, History, CalendarDays, Database, Search, X } from "lucide-react";
-import { Button, Checkbox, TextInput, Switch, Select } from "@gravity-ui/uikit";
+import { Button, Checkbox, TextInput, Switch, Select, Label } from "@gravity-ui/uikit";
 import { useUploads } from "../entities/upload/model/hooks";
 import { useSessionsSummary } from "../entities/summary/model/hooks";
-import { useRunClustering } from "../features/run-clustering/model/useRunClustering";
-import { clusteringMetricGroups, distanceMetricOptions } from "../shared/config/ui";
+import { useClusteringPreview, useRunClustering } from "../features/run-clustering/model/useRunClustering";
+import { clusteringMetricGroups, distanceMetricOptions, getUploadStatusLabel } from "../shared/config/ui";
 
 type Algorithm = "kmeans" | "dbscan";
 
@@ -31,36 +31,41 @@ export function ClusteringPage() {
   const [selectedBatches, setSelectedBatches] = useState<string[]>(["all"]);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
   const [batchSearch, setBatchSearch] = useState("");
-  const { items: uploads } = useUploads(200);
+  const { groupedBatches } = useUploads(200);
   const sessions = useSessionsSummary();
   const { running, run } = useRunClustering();
-  const batchOptions = useMemo(() => {
-    const batches = new Map<string, { id: string; createdAt: string; files: number; rows: number; status: string }>();
-    for (const upload of uploads) {
-      const id = String(upload.importBatchId ?? upload._id ?? "");
-      if (!id) continue;
-      const current = batches.get(id);
-      batches.set(id, {
-        id,
-        createdAt: String(current?.createdAt ?? upload.createdAt ?? ""),
-        files: (current?.files ?? 0) + Number(upload.filesCount ?? 1),
-        rows: (current?.rows ?? 0) + Number(upload.totalRows ?? 0),
-        status: String(upload.status ?? current?.status ?? ""),
-      });
-    }
-    return [...batches.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [uploads]);
+  const batchOptions = groupedBatches;
   const selectedBatchCount = selectedBatches.includes("all") ? batchOptions.length : selectedBatches.length;
   const filteredBatches = batchOptions.filter((batch) => {
     const query = batchSearch.toLowerCase();
-    return !query || batch.id.toLowerCase().includes(query) || batch.status.toLowerCase().includes(query);
+    const statusLabel = getUploadStatusLabel(batch.status).text.toLowerCase();
+    return !query || batch.id.toLowerCase().includes(query) || batch.status.toLowerCase().includes(query) || statusLabel.includes(query);
   });
   const selectedBatchRows = batchOptions
     .filter((batch) => selectedBatches.includes("all") || selectedBatches.includes(batch.id))
-    .reduce((sum, batch) => sum + batch.rows, 0);
+    .reduce((sum, batch) => sum + batch.rowsCount, 0);
   const selectedBatchFiles = batchOptions
     .filter((batch) => selectedBatches.includes("all") || selectedBatches.includes(batch.id))
     .reduce((sum, batch) => sum + batch.files, 0);
+  const clusteringPayload = useMemo(() => ({
+    algorithm,
+    k: Number(clusters),
+    batchIds: selectedBatches.includes("all") ? [] : selectedBatches,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    courseName: courseName || undefined,
+    examName: examName || undefined,
+    group: group || undefined,
+    program: program || undefined,
+    educationLevel: educationLevel || undefined,
+    selectedFeatures: [...selectedMetrics].map((metric) => featureMap[metric] ?? metric),
+    distanceMetric,
+    autoDetectAnomalies: autoDetect,
+    epsilon: Number(epsilon),
+    minSamples: Number(minSamples),
+    markNoiseAsAnomalies: markNoise,
+  }), [algorithm, autoDetect, clusters, courseName, dateFrom, dateTo, distanceMetric, educationLevel, epsilon, examName, featureMap, group, markNoise, minSamples, program, selectedBatches, selectedMetrics]);
+  const preview = useClusteringPreview(clusteringPayload);
 
   const toggleMetric = (m: string) => {
     const next = new Set(selectedMetrics);
@@ -70,25 +75,7 @@ export function ClusteringPage() {
   };
 
   async function runClustering() {
-    const batchIds = selectedBatches.includes("all") ? [] : selectedBatches;
-    const result = await run({
-      algorithm,
-      k: Number(clusters),
-      batchIds,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
-      courseName: courseName || undefined,
-      examName: examName || undefined,
-      group: group || undefined,
-      program: program || undefined,
-      educationLevel: educationLevel || undefined,
-      selectedFeatures: [...selectedMetrics].map((metric) => featureMap[metric] ?? metric),
-      distanceMetric,
-      autoDetectAnomalies: autoDetect,
-      epsilon: Number(epsilon),
-      minSamples: Number(minSamples),
-      markNoiseAsAnomalies: markNoise,
-    });
+    const result = await run(clusteringPayload);
     navigate(`/results/${result._id}`);
   }
 
@@ -200,6 +187,9 @@ export function ClusteringPage() {
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13px]" style={{ fontWeight: 500 }}>Пачка {id.slice(-8)}</span>
                       <span className="block text-[12px] text-muted-foreground">{batch.createdAt ? new Date(batch.createdAt).toLocaleString("ru-RU") : "Дата неизвестна"} · файлов {batch.files} · строк {batch.rows}</span>
+                      <span className="block mt-1">
+                        <Label theme={getUploadStatusLabel(batch.status).theme}>{getUploadStatusLabel(batch.status).text}</Label>
+                      </span>
                     </span>
                   </label>
                 );
@@ -232,7 +222,10 @@ export function ClusteringPage() {
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5 space-y-5">
-            <h3 className="text-[15px]" style={{ fontWeight: 600 }}>Признаки для включения</h3>
+            <div>
+              <h3 className="text-[15px]" style={{ fontWeight: 600 }}>Признаки для включения</h3>
+              <p className="text-[12px] text-muted-foreground mt-1">Выбрано {selectedMetrics.size} из {metricLabels.length} метрик</p>
+            </div>
             <div>
               {clusteringMetricGroups.map((group) => (
                 <div key={group.title} className="mb-5 last:mb-0">
@@ -248,16 +241,6 @@ export function ClusteringPage() {
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="bg-card rounded-xl border border-border p-5">
-            <h3 className="text-[15px] mb-3" style={{ fontWeight: 600 }}>Итог признаков</h3>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {[...selectedMetrics].map((m) => (
-                <span key={m} className="px-2.5 py-1 bg-primary/10 text-primary rounded-md text-[12px]" style={{ fontWeight: 500 }}>{m}</span>
-              ))}
-            </div>
-            <p className="text-[13px] text-muted-foreground">Выбрано {selectedMetrics.size} из {metricLabels.length} метрик</p>
           </div>
         </div>
 
@@ -285,12 +268,19 @@ export function ClusteringPage() {
           <div className="bg-card rounded-xl border border-border p-5 space-y-3">
             <h3 className="text-[15px]" style={{ fontWeight: 600 }}>Сводка датасета</h3>
             {[
-              { label: "Сессий в БД", value: sessions.total.toLocaleString("ru-RU") },
+              { label: "Сессий всего в БД", value: sessions.total.toLocaleString("ru-RU") },
               { label: "Выбрано пачек", value: selectedBatches.includes("all") ? batchOptions.length.toLocaleString("ru-RU") : selectedBatches.length.toLocaleString("ru-RU") },
               { label: "Файлов в выбранных пачках", value: selectedBatchFiles.toLocaleString("ru-RU") },
+              { label: "Сессий для кластеризации", value: preview.totalSessions.toLocaleString("ru-RU"), loading: preview.loading },
               { label: "Строк в выбранных пачках", value: selectedBatchRows.toLocaleString("ru-RU") },
             ].map((s) => (
-              <div key={s.label} className="flex justify-between text-[13px]"><span className="text-muted-foreground">{s.label}</span><span style={{ fontWeight: 500 }}>{s.value}</span></div>
+              <div key={s.label} className="flex justify-between text-[13px] gap-3">
+                <span className="text-muted-foreground">{s.label}</span>
+                <span className="text-right" style={{ fontWeight: 500 }}>
+                  {s.value}
+                  {s.loading && <span className="ml-1 text-[11px] text-muted-foreground" style={{ fontWeight: 400 }}>обновляется</span>}
+                </span>
+              </div>
             ))}
           </div>
 

@@ -16,10 +16,11 @@ import { api, ApiError } from "../shared/api/client";
 import type { AnyRecord } from "../entities/types";
 import { RecordDetailsView } from "../shared/ui/RecordDetailsView";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
-import { uploadStatusLabels } from "../shared/config/ui";
+import { getUploadStatusLabel } from "../shared/config/ui";
 import { formatDate, formatDurationMs } from "../shared/lib/format";
 import { isValidIsoDateTime } from "../shared/lib/dateTime";
 import { useRetryProcessing, useStartProcessing, useStopProcessing } from "../entities/upload/model/hooks";
+import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 
 interface LogEntry {
   id: number;
@@ -66,11 +67,6 @@ function normalizeEntity(value: unknown): LogEntry["entityType"] {
   return "moodle";
 }
 
-function uploadStatusLabel(status: string) {
-  const key = status as keyof typeof uploadStatusLabels;
-  return uploadStatusLabels[key]?.text ?? status;
-}
-
 export function UploadLogPage() {
   const { uploadId, id } = useParams<{ uploadId?: string; id?: string }>();
   const currentId = uploadId ?? id ?? "";
@@ -108,10 +104,6 @@ export function UploadLogPage() {
     setLoading(true);
     setNotFound(false);
     setLoadError("");
-    setUpload(null);
-    setLogEntries([]);
-    setProblemRows([]);
-    setUnmappedStudents([]);
     try {
       const params = new URLSearchParams();
       if (levelFilter !== "all") params.set("level", levelFilter);
@@ -204,8 +196,10 @@ export function UploadLogPage() {
   const uploadStatus = String(upload?.status ?? "");
   const processingState = upload?.processingState as { status?: string } | undefined;
   const lifecycleStatus = String(processingState?.status ?? (finalUploadStatuses.has(uploadStatus) ? "idle" : uploadStatus));
-  const canStopUpload = Boolean(currentId && upload && (lifecycleStatus === "queued" || lifecycleStatus === "processing"));
-  const canRetryUpload = Boolean(currentId && upload && (["cancelled", "failed", "stale", "done", "done_with_warnings"].includes(lifecycleStatus) || (lifecycleStatus === "idle" && ["done", "done_with_warnings", "failed"].includes(uploadStatus))));
+  const importStatusLabel = getUploadStatusLabel(uploadStatus || undefined);
+  const lifecycleStatusLabel = getUploadStatusLabel(lifecycleStatus || undefined);
+  const canStopUpload = Boolean(currentId && upload && isActiveProcessingStatus(lifecycleStatus) && lifecycleStatus !== "cancelling");
+  const canRetryUpload = Boolean(currentId && upload && isRetryableProcessingStatus(lifecycleStatus, uploadStatus));
   const canStartUpload = Boolean(currentId && upload && lifecycleStatus === "idle" && !canRetryUpload);
   const canProcessUpload = canStartUpload || canStopUpload || canRetryUpload || lifecycleStatus === "cancelling";
   const processButtonLabel =
@@ -236,7 +230,7 @@ export function UploadLogPage() {
     }
   }
 
-  if (loading) {
+  if (loading && !upload) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground gap-2">
         <Loader2 className="w-5 h-5 animate-spin" />
@@ -298,7 +292,7 @@ export function UploadLogPage() {
               </h1>
             </div>
             <p className="text-[14px] text-muted-foreground">
-              Загрузка от {formatDate(upload?.createdAt)} · {String(upload?.createdByName ?? upload?.createdBy ?? "Система")} · Статус: {uploadStatusLabel(String(upload?.status ?? "—"))} · Длительность: {duration}
+              Загрузка от {formatDate(upload?.createdAt)} · {String(upload?.createdByName ?? upload?.createdBy ?? "Система")} · Импорт: {importStatusLabel.text} · Обработка: {lifecycleStatusLabel.text} · Длительность: {duration}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

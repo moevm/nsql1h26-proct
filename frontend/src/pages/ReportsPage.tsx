@@ -6,7 +6,7 @@ import { Button, Select, Switch, TextInput } from "@gravity-ui/uikit";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { useReportExport, type ReportExportFormat, type ReportExportKind } from "../features/export-report/model/useReportExport";
 import { formatNumber } from "../shared/lib/format";
-import { runStatusLabels } from "../shared/config/ui";
+import { getRunStatusLabel, runStatusLabels } from "../shared/config/ui";
 import type { AnyRecord } from "../entities/types";
 
 const reportKindOptions = [
@@ -53,7 +53,7 @@ export function ReportsPage() {
   const selectedAnomalies = Number(selectedResults.anomalyCount ?? 0);
   const selectedAnomalyRate = selectedResults.anomalyRate;
   const selectedStatus = selectedHistoryRun?.status ?? "success";
-  const selectedStatusLabel = runStatusLabels[selectedStatus];
+  const selectedStatusLabel = getRunStatusLabel(selectedStatus);
   const { download } = useReportExport();
   const [reportKind, setReportKind] = useState<ReportExportKind>("sessions");
   const [reportDateFrom, setReportDateFrom] = useState("");

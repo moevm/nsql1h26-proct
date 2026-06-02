@@ -68,9 +68,9 @@ function domainFromDrag(start: ChartPoint, end: ChartPoint, width: number, heigh
 export function ResultsPage() {
   const { runId } = useParams();
   const navigate = useNavigate();
-  const { runs: latestRuns } = useClusteringRuns(1);
+  const { runs: latestRuns, loading: runsLoading } = useClusteringRuns(1);
   const actualRunId = runId ?? latestRuns[0]?.id;
-  const { result } = useClusteringResult(actualRunId);
+  const { result, loading: resultLoading } = useClusteringResult(actualRunId);
   const run = (result?.run ?? result) as AnyRecord | undefined;
   const resultSessions = (result?.sessions ?? []) as AnyRecord[];
   const resultStudents = (result?.students ?? []) as AnyRecord[];
@@ -175,6 +175,28 @@ export function ResultsPage() {
     await api(`/clustering-runs/${actualRunId}`, { method: "DELETE" });
     navigate("/cluster-history");
   };
+
+  if (runsLoading || (actualRunId && resultLoading && !result)) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground">
+        Загрузка результатов кластеризации...
+      </div>
+    );
+  }
+
+  if (!runId && !actualRunId && latestRuns.length === 0) {
+    return (
+      <div className="bg-card rounded-xl border border-border p-8 text-center space-y-4">
+        <div>
+          <h1 className="text-[22px]" style={{ fontWeight: 600 }}>Запусков кластеризации пока нет</h1>
+          <p className="text-[14px] text-muted-foreground mt-2">Настройте параметры и запустите кластеризацию, чтобы увидеть результаты.</p>
+        </div>
+        <Button view="action" className="text-[13px] h-9" onClick={() => navigate("/clustering")}>
+          Перейти к кластеризации
+        </Button>
+      </div>
+    );
+  }
 
   const finishAreaZoom = (event: MouseEvent<HTMLDivElement>) => {
     if (!dragStart || !dragEnd) {

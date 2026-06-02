@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { parse } from "csv-parse/sync";
 import { Document, ObjectId } from "mongodb";
 
@@ -26,6 +27,14 @@ type CsvImportResult = {
   errors: CsvImportError[];
 };
 
+class CsvValidationError extends Error {
+  statusCode = 400;
+}
+
+class CsvDuplicateError extends Error {
+  statusCode = 409;
+}
+
 const templates: Record<CsvImportKind, string[]> = {
   students: ["externalId", "recordBookNumber", "fullName", "email", "faculty", "program", "educationLevel", "group", "faceEmbedding"],
   sessions: [
@@ -45,6 +54,13 @@ const templates: Record<CsvImportKind, string[]> = {
   ],
   moodle_events: ["externalStudentId", "sessionId", "eventTime", "action", "target", "courseName", "ip", "userAgent", "quizId", "questionId", "answer", "isCorrect", "timeSpent", "tabFocus"],
   ocr_events: ["externalStudentId", "sessionId", "eventTime", "frameIndex", "videoOffsetMs", "content", "confidence", "markdown"],
+};
+
+const requiredHeaders: Record<CsvImportKind, string[]> = {
+  students: ["externalId", "fullName", "email"],
+  sessions: ["externalStudentId", "examName", "startTime"],
+  moodle_events: ["externalStudentId", "eventTime", "action", "target"],
+  ocr_events: ["externalStudentId", "eventTime", "content", "confidence"],
 };
 
 const kindLabels: Record<CsvImportKind, string> = {
@@ -67,13 +83,72 @@ export function getCsvTemplateFileName(kind: CsvImportKind) {
 }
 
 function parseCsv(buffer: Buffer): Document[] {
-  return parse(buffer, {
-    bom: true,
-    columns: true,
-    delimiter: [",", ";"],
-    skip_empty_lines: true,
-    trim: true,
-  }) as Document[];
+  try {
+    return parse(buffer, {
+      bom: true,
+      columns: true,
+      delimiter: [",", ";"],
+      skip_empty_lines: true,
+      trim: true,
+    }) as Document[];
+  } catch (error) {
+    throw new CsvValidationError(formatCsvParseError(error));
+  }
+}
+
+function parseCsvHeaders(buffer: Buffer) {
+  try {
+    const records = parse(buffer, {
+      bom: true,
+      delimiter: [",", ";"],
+      skip_empty_lines: true,
+      to_line: 1,
+      trim: true,
+    }) as string[][];
+    return records[0] ?? [];
+  } catch (error) {
+    throw new CsvValidationError(formatCsvParseError(error));
+  }
+}
+
+function formatCsvParseError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  const line = (error as { lines?: number } | undefined)?.lines ?? message.match(/line (\d+)/i)?.[1];
+  const lineText = line ? `CSV строка ${line}` : "CSV файл";
+  return `${lineText} содержит некорректное количество колонок. Если поле содержит запятые или точку с запятой, заключите его в кавычки.`;
+}
+
+function detectCsvKind(headers: Set<string>) {
+  const matches = (Object.entries(requiredHeaders) as Array<[CsvImportKind, string[]]>)
+    .map(([kind, required]) => ({ kind, matched: required.filter((header) => headers.has(header)).length, total: required.length }))
+    .filter((match) => match.matched > 0)
+    .sort((a, b) => (b.matched / b.total) - (a.matched / a.total) || b.matched - a.matched);
+  return matches[0]?.matched === matches[0]?.total ? matches[0].kind : undefined;
+}
+
+function validateCsvHeaders(kind: CsvImportKind, headers: string[]) {
+  const headerSet = new Set(headers.filter(Boolean));
+  const missing = requiredHeaders[kind].filter((header) => !headerSet.has(header));
+  if (!missing.length) return;
+
+  const detectedKind = detectCsvKind(headerSet);
+  const detectedHint = detectedKind && detectedKind !== kind
+    ? ` Похоже, выбран файл типа "${kindLabels[detectedKind]}".`
+    : "";
+  throw new CsvValidationError(`CSV не соответствует типу "${kindLabels[kind]}". Не хватает колонок: ${missing.join(", ")}.${detectedHint}`);
+}
+
+function sha256(buffer: Buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+async function ensureNotDuplicateCsv(kind: CsvImportKind, importBatchId: ObjectId, checksum: string) {
+  const duplicate = await getCollection("uploads").findOne({
+    importBatchId,
+    [`files.${kind}.sha256`]: checksum,
+  });
+  if (!duplicate) return;
+  throw new CsvDuplicateError(`Этот CSV уже загружен в активную пачку как ${kindLabels[kind]}.`);
 }
 
 function numberValue(value: unknown, fallback = 0) {
@@ -153,6 +228,7 @@ async function createImportUpload(
   uploadId: ObjectId,
   importBatchId: ObjectId,
   storagePath: string,
+  fileMeta: { sha256: string; sizeBytes: number },
   originalName?: string,
   auditContext?: AuditContext,
 ) {
@@ -168,7 +244,7 @@ async function createImportUpload(
     totalRows: 0,
     matchedStudents: 0,
     files: {
-      [kind]: { kind, typeLabel: kindLabels[kind], originalName: originalName ?? `${kind}.csv`, storagePath, status: "processing" },
+      [kind]: { kind, typeLabel: kindLabels[kind], originalName: originalName ?? `${kind}.csv`, storagePath, status: "processing", ...fileMeta },
     },
     processingLog: [{ timestamp: now, level: "info", sourceFileKey: kind, line: 1, entityType: "upload", message: `CSV импорт начат: ${kindLabels[kind]}` }],
     unresolvedStudents: [],
@@ -464,11 +540,15 @@ export async function importCsv(
   options: { batchId?: string; originalName?: string; auditContext?: AuditContext } = {},
 ): Promise<CsvImportResult> {
   const now = new Date();
+  const headers = parseCsvHeaders(buffer);
+  validateCsvHeaders(kind, headers);
   const rows = parseCsv(buffer);
   const uploadId = new ObjectId();
   const importBatchId = options.batchId && ObjectId.isValid(options.batchId) ? new ObjectId(options.batchId) : new ObjectId();
+  const fileMeta = { sha256: sha256(buffer), sizeBytes: buffer.byteLength };
+  await ensureNotDuplicateCsv(kind, importBatchId, fileMeta.sha256);
   const storagePath = await persistUploadFile(buffer, uploadId, kind, options.originalName);
-  await createImportUpload(kind, user, now, uploadId, importBatchId, storagePath, options.originalName, options.auditContext);
+  await createImportUpload(kind, user, now, uploadId, importBatchId, storagePath, fileMeta, options.originalName, options.auditContext);
 
   const imported =
     kind === "students"

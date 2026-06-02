@@ -40,7 +40,7 @@ export function ProcessingLogDetailsPage() {
       <Link className="button button_secondary" to={`/upload-history/${uploadId}`}>
         Загрузка
       </Link>
-      <Link className="button" to="/processing">
+      <Link className="button" to={`/processing?uploadId=${uploadId}`}>
         Назад
       </Link>
     </>

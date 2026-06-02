@@ -48,7 +48,7 @@ export type UploadBatch = {
   author: string;
   files: number;
   fileTypes: string;
-  status: "success" | "warning" | "error" | ProcessingStatus | "pending";
+  status: "success" | "warning" | "error" | ProcessingStatus | "pending" | "unknown";
   rowsCount: number;
   rows: string;
   studentsCount: number;

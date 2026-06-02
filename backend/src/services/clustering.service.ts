@@ -101,7 +101,7 @@ export function runDbscanLike(items: FeatureSession[]) {
   return { clusters, assignments };
 }
 
-export async function createClusteringRun(body: ClusteringRunInput, user: AuthUser) {
+async function buildClusteringFilter(body: ClusteringRunInput) {
   const filter: Document = {};
   if (body.uploadIds?.length) filter.uploadId = { $in: body.uploadIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id)) };
   if (body.batchIds?.length) filter.importBatchId = { $in: body.batchIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id)) };
@@ -127,6 +127,32 @@ export async function createClusteringRun(body: ClusteringRunInput, user: AuthUs
       .toArray();
     filter._id = { $in: events.map((event) => event.sessionId as ObjectId) };
   }
+
+  return filter;
+}
+
+export async function getClusteringPreview(body: ClusteringRunInput) {
+  const filter = await buildClusteringFilter(body);
+  const totalSessions = await getCollection("sessions").countDocuments(filter);
+  return { totalSessions };
+}
+
+function buildSubsetLabel(body: ClusteringRunInput, totalSessions: number) {
+  const parts: string[] = [];
+  if (body.batchIds?.length) parts.push(`Пачек: ${body.batchIds.length}`);
+  else parts.push("Все доступные сессии");
+  if (body.examName) parts.push(`Экзамен: ${body.examName}`);
+  if (body.courseName) parts.push(`Курс: ${body.courseName}`);
+  if (body.group) parts.push(`Группа: ${body.group}`);
+  if (body.program) parts.push(`Программа: ${body.program}`);
+  if (body.educationLevel) parts.push(`Уровень: ${body.educationLevel}`);
+  if (body.dateFrom || body.dateTo) parts.push(`Период: ${body.dateFrom ?? "начало"} — ${body.dateTo ?? "сейчас"}`);
+  parts.push(`Сессий: ${totalSessions}`);
+  return parts.join(" · ");
+}
+
+export async function createClusteringRun(body: ClusteringRunInput, user: AuthUser) {
+  const filter = await buildClusteringFilter(body);
 
   const sessions = await findSessionsForClustering(filter);
   if (sessions.length < 2) {
@@ -156,6 +182,7 @@ export async function createClusteringRun(body: ClusteringRunInput, user: AuthUs
       selectedFeatures: body.selectedFeatures ?? ["totalActions", "faceAbsenceRate"],
     },
     filter: {
+      label: buildSubsetLabel(body, sessions.length),
       dateFrom: body.dateFrom ? new Date(body.dateFrom) : null,
       dateTo: body.dateTo ? new Date(body.dateTo) : null,
       uploadIds: body.uploadIds ?? [],

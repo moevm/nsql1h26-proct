@@ -1,10 +1,12 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Download, History, RotateCcw, Upload } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Download, History, RotateCcw, Square, Trash2, Upload } from "lucide-react";
 import { Button, Label } from "@gravity-ui/uikit";
 import { csvImportCards, type CsvKind } from "../features/csv-upload/config/csvImportConfig";
 import { useCsvImport } from "../features/csv-upload/model/useCsvImport";
-import { useRetryProcessing, useStartProcessing, useUploads } from "../entities/upload/model/hooks";
+import { isActiveProcessingStatus, isRetryableProcessingStatus, statusPriority, uploadStatus } from "../entities/upload/model/adapters";
+import { useRetryProcessing, useStartProcessing, useStopProcessing, useUploads } from "../entities/upload/model/hooks";
+import type { AnyRecord } from "../entities/types";
 
 export function UploadsPage() {
   const navigate = useNavigate();
@@ -13,9 +15,13 @@ export function UploadsPage() {
   const savedBatch = readUploadPageState();
   const [batchMode, setBatchMode] = useState<"new" | "existing">(savedBatch.batchMode);
   const [selectedBatchId, setSelectedBatchId] = useState(savedBatch.selectedBatchId);
-  const { statuses, results, errors, uploadCsv, downloadTemplate } = useCsvImport();
-  const { items: uploadItems } = useUploads(200);
+  const currentBatchIdRef = useRef(savedBatch.batchMode === "existing" ? savedBatch.selectedBatchId : "");
+  const [sessionBatchIds, setSessionBatchIds] = useState<Set<string>>(() => new Set());
+  const activeBatchId = batchMode === "existing" ? selectedBatchId : undefined;
+  const { statuses, results, errors, uploadCsv, downloadTemplate, resetImportState } = useCsvImport(activeBatchId);
+  const { items: uploadItems, loading: uploadsLoading, refetch: refetchUploads } = useUploads(200);
   const startProcessing = useStartProcessing();
+  const stopProcessing = useStopProcessing();
   const retryProcessing = useRetryProcessing();
   const batchOptions = useMemo(() => {
     const batches = new Map<string, { id: string; createdAt: string; files: number; rows: number; kinds: Set<string> }>();
@@ -34,25 +40,52 @@ export function UploadsPage() {
     }
     return [...batches.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [uploadItems]);
-  const activeBatchId = batchMode === "existing" ? selectedBatchId : undefined;
-  const activeBatch = batchOptions.find((batch) => batch.id === activeBatchId);
   const activeBatchUploads = uploadItems.filter((upload) => String(upload.importBatchId ?? upload._id ?? "") === activeBatchId);
-  const activeProcessingStatus = activeBatchUploads
+  const activeProcessingStateStatus = activeBatchUploads
     .map((upload) => String(((upload.processingState ?? {}) as { status?: string }).status ?? ""))
     .find(Boolean);
-  const activeUploadStatus = activeBatchUploads.map((upload) => String(upload.status ?? "")).find(Boolean);
-  const activeLifecycleStatus = activeProcessingStatus || activeUploadStatus;
+  const activeLifecycleStatus = activeBatchUploads
+    .map(uploadStatus)
+    .sort((a, b) => statusPriority(b) - statusPriority(a))[0];
 
   useEffect(() => {
     sessionStorage.setItem("upload-page-state", JSON.stringify({ batchMode, selectedBatchId }));
   }, [batchMode, selectedBatchId]);
 
+  useEffect(() => {
+    if (!sessionBatchIds.size) return;
+    setSessionBatchIds((ids) => new Set([...ids].filter((id) => !batchOptions.some((batch) => batch.id === id))));
+  }, [batchOptions, sessionBatchIds.size]);
+
+  useEffect(() => {
+    if (uploadsLoading || batchMode !== "existing" || !selectedBatchId) return;
+    if (sessionBatchIds.has(selectedBatchId)) return;
+    if (batchOptions.some((batch) => batch.id === selectedBatchId)) return;
+    currentBatchIdRef.current = "";
+    setBatchMode("new");
+    setSelectedBatchId("");
+  }, [batchMode, batchOptions, selectedBatchId, sessionBatchIds, uploadsLoading]);
+
   async function uploadIntoActiveBatch(kind: CsvKind, file?: File) {
-    const result = await uploadCsv(kind, file, activeBatchId);
+    if (batchMode === "existing" && !selectedBatchId) return;
+    const uploadBatchId = currentBatchIdRef.current || activeBatchId;
+    const result = await uploadCsv(kind, file, uploadBatchId);
     if (result?.importBatchId) {
+      currentBatchIdRef.current = result.importBatchId;
+      setSessionBatchIds((ids) => new Set(ids).add(result.importBatchId));
       setSelectedBatchId(result.importBatchId);
       setBatchMode("existing");
+      refetchUploads();
     }
+  }
+
+  function resetUploadPageState() {
+    currentBatchIdRef.current = "";
+    setSessionBatchIds(new Set());
+    setSelectedBatchId("");
+    setBatchMode("new");
+    resetImportState({ all: true });
+    sessionStorage.setItem("upload-page-state", JSON.stringify({ batchMode: "new", selectedBatchId: "" }));
   }
 
   function handleFileChange(kind: CsvKind, event: ChangeEvent<HTMLInputElement>) {
@@ -66,28 +99,39 @@ export function UploadsPage() {
     void uploadIntoActiveBatch(kind, event.dataTransfer.files[0]);
   }
 
-  const totalRows = Object.values(results).reduce((sum, result) => sum + (result?.totalRows ?? 0), 0);
-  const insertedRows = Object.values(results).reduce((sum, result) => sum + (result?.insertedCount ?? 0), 0);
-  const warningRows = Object.values(results).reduce((sum, result) => sum + (result?.errorCount ?? 0), 0);
-  const activeWarningRows = activeBatchUploads.reduce((sum, upload) => {
-    const summary = (upload.summary ?? {}) as { errorCount?: number };
-    return sum + Number(upload.errorCount ?? summary.errorCount ?? (upload.unresolvedStudents as unknown[] | undefined)?.length ?? 0);
-  }, 0) + Object.values(results)
-    .filter((result) => result?.importBatchId === activeBatchId)
-    .reduce((sum, result) => sum + Number(result?.errorCount ?? 0), 0);
-  const activeKinds = new Set([
-    ...(activeBatch?.kinds ?? []),
-    ...Object.values(results)
-      .filter((result) => result?.importBatchId === activeBatchId)
-      .map((result) => result?.kind)
-      .filter(Boolean),
-  ]);
+  const cardStates = useMemo(() => Object.fromEntries(csvImportCards.map((card) => {
+    const result = results[card.kind];
+    const serverAggregate = aggregateBatchFiles(activeBatchUploads, card.kind);
+    const sessionStatus = statuses[card.kind];
+    const hasUploadedData = Boolean(serverAggregate.filesCount || result);
+    const status = sessionStatus === "uploading" ? "uploading" : hasUploadedData ? "uploaded" : sessionStatus === "error" ? "error" : "empty";
+    return [card.kind, {
+      status,
+      result,
+      uploadId: result?.uploadId ?? serverAggregate.uploadId,
+      importBatchId: result?.importBatchId ?? serverAggregate.importBatchId ?? activeBatchId,
+      totalRows: serverAggregate.filesCount ? serverAggregate.totalRows : result?.totalRows,
+      insertedCount: serverAggregate.filesCount ? serverAggregate.insertedCount : result?.insertedCount,
+      errorCount: serverAggregate.filesCount ? serverAggregate.errorCount : result?.errorCount ?? 0,
+      filesCount: serverAggregate.filesCount || (result ? 1 : 0),
+      lastError: sessionStatus === "error" ? errors[card.kind] : undefined,
+    }];
+  })) as Record<CsvKind, ActiveCsvCardState>, [activeBatchId, activeBatchUploads, errors, results, statuses]);
+  const totalRows = Object.values(cardStates).reduce((sum, state) => sum + Number(state.totalRows ?? 0), 0);
+  const insertedRows = Object.values(cardStates).reduce((sum, state) => sum + Number(state.insertedCount ?? state.totalRows ?? 0), 0);
+  const warningRows = Object.values(cardStates).reduce((sum, state) => sum + Number(state.errorCount ?? 0), 0);
+  const activeWarningRows = warningRows;
+  const activeKinds = new Set(csvImportCards.filter((card) => cardStates[card.kind].status === "uploaded").map((card) => card.kind));
   const requiredKinds = new Set<CsvKind>(["students", "sessions"]);
   const missingCards = csvImportCards.filter((card) => requiredKinds.has(card.kind) && !activeKinds.has(card.kind));
-  const isProcessingActive = Boolean(activeLifecycleStatus && ["queued", "processing", "cancelling"].includes(activeLifecycleStatus));
+  const isProcessingActive = isActiveProcessingStatus(activeLifecycleStatus);
   const canStartProcessing = Boolean(activeBatchId && missingCards.length === 0 && !isProcessingActive);
-  const shouldRetryProcessing = Boolean(activeLifecycleStatus && ["done", "done_with_warnings", "cancelled", "failed", "stale"].includes(activeLifecycleStatus));
-  const startHint = !activeBatchId
+  const shouldRetryProcessing = isRetryableProcessingStatus(activeProcessingStateStatus);
+  const uploadSelectionError = batchMode === "existing" && !selectedBatchId ? "Выберите существующую пачку или создайте новую." : "";
+  const isCreatingBatch = batchMode === "new" && Object.values(statuses).some((status) => status === "uploading");
+  const startHint = uploadSelectionError
+    ? uploadSelectionError
+    : !activeBatchId
     ? "Сначала загрузите CSV и сформируйте активную пачку."
     : missingCards.length
       ? `Не хватает файлов: ${missingCards.map((card) => card.title).join(", ")}.`
@@ -97,7 +141,9 @@ export function UploadsPage() {
         ? "Все файлы загружены, можно перезапустить обработку."
         : "Все файлы загружены, можно запускать обработку.";
   const startHintClass = isProcessingActive ? "text-primary" : canStartProcessing ? "text-success" : "text-warning";
-  const validationLabel = !activeBatchId
+  const validationLabel = uploadSelectionError
+    ? { theme: "warning" as const, text: "Пачка не выбрана" }
+    : !activeBatchId
     ? { theme: "normal" as const, text: "Ожидает загрузки" }
     : missingCards.length
       ? { theme: "warning" as const, text: "Не все файлы загружены" }
@@ -123,13 +169,23 @@ export function UploadsPage() {
     }
   }
 
+  async function handleStopProcessing() {
+    if (!activeBatchId || !isProcessingActive) return;
+    try {
+      await stopProcessing.run(activeBatchId);
+      navigate(`/processing?uploadId=${activeBatchId}`);
+    } catch {
+      // Inline error is rendered near the action button.
+    }
+  }
+
   function handleOpenProcessing() {
     if (!activeBatchId) return;
     navigate(`/processing?uploadId=${activeBatchId}`);
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-[22px]" style={{ fontWeight: 600 }}>
@@ -159,13 +215,25 @@ export function UploadsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             className={`text-left rounded-lg border p-4 transition-colors ${batchMode === "new" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
-            onClick={() => setBatchMode("new")}
+            onClick={() => {
+              currentBatchIdRef.current = "";
+              setSessionBatchIds(new Set());
+              setSelectedBatchId("");
+              setBatchMode("new");
+              resetImportState({ all: true });
+            }}
           >
             <div className="text-[14px]" style={{ fontWeight: 600 }}>Создать новую пачку</div>
             <div className="text-[12px] text-muted-foreground mt-1">Первый загруженный CSV создаст новый ID пачки.</div>
           </button>
           <div className={`rounded-lg border p-4 space-y-3 ${batchMode === "existing" ? "border-primary bg-primary/5" : "border-border"}`}>
-            <button className="text-left w-full" onClick={() => setBatchMode("existing")}>
+            <button
+              className="text-left w-full"
+              onClick={() => {
+                currentBatchIdRef.current = selectedBatchId;
+                setBatchMode("existing");
+              }}
+            >
               <div className="text-[14px]" style={{ fontWeight: 600 }}>Добавить в существующую пачку</div>
               <div className="text-[12px] text-muted-foreground mt-1">Используйте, если уже загрузили часть файлов для этого экзамена.</div>
             </button>
@@ -173,7 +241,9 @@ export function UploadsPage() {
               className="w-full h-9 rounded border border-border bg-background px-3 text-[13px]"
               value={selectedBatchId}
               onChange={(event) => {
-                setSelectedBatchId(event.target.value);
+                const nextBatchId = event.target.value;
+                currentBatchIdRef.current = nextBatchId;
+                setSelectedBatchId(nextBatchId);
                 setBatchMode("existing");
               }}
             >
@@ -189,13 +259,29 @@ export function UploadsPage() {
         <div className="text-[12px] text-muted-foreground">
           Активная пачка: {batchMode === "existing" && selectedBatchId ? selectedBatchId : "будет создана при следующей загрузке"}
         </div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[12px] text-muted-foreground">
+            Если на странице остались результаты от неверной пачки, сбросьте локальное состояние загрузки. Данные в БД не удаляются.
+          </p>
+          <Button view="flat-danger" size="s" className="text-[12px]" onClick={resetUploadPageState}>
+            <span className="flex items-center gap-1">
+              <Trash2 className="w-3.5 h-3.5" />
+              Сбросить состояние
+            </span>
+          </Button>
+        </div>
+        {uploadSelectionError && (
+          <div className="rounded-lg bg-warning/5 border border-warning/20 px-3 py-2 text-[12px] text-warning">
+            {uploadSelectionError}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-5">
         {csvImportCards.map((card) => {
           const Icon = card.icon;
-          const status = statuses[card.kind];
-          const result = results[card.kind];
+          const state = cardStates[card.kind];
+          const uploadDisabled = Boolean(uploadSelectionError) || (isCreatingBatch && state.status !== "uploading");
           return (
             <div
               key={card.kind}
@@ -207,7 +293,14 @@ export function UploadsPage() {
                 setDragging(card.kind);
               }}
               onDragLeave={() => setDragging(null)}
-              onDrop={(event) => handleDrop(card.kind, event)}
+              onDrop={(event) => {
+                if (uploadDisabled) {
+                  event.preventDefault();
+                  setDragging(null);
+                  return;
+                }
+                handleDrop(card.kind, event);
+              }}
             >
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center shrink-0">
@@ -235,7 +328,14 @@ export function UploadsPage() {
                     accept=".csv,text/csv"
                     onChange={(event) => handleFileChange(card.kind, event)}
                   />
-                  <Button view="outlined" size="s" className="mt-2 text-[12px]" onClick={() => inputs.current[card.kind]?.click()} loading={status === "uploading"}>
+                  <Button
+                    view="outlined"
+                    size="s"
+                    className="mt-2 text-[12px]"
+                    onClick={() => inputs.current[card.kind]?.click()}
+                    loading={state.status === "uploading"}
+                    disabled={uploadDisabled}
+                  >
                     Выбрать CSV
                   </Button>
                 </div>
@@ -251,26 +351,33 @@ export function UploadsPage() {
                 <code className="text-[11px] bg-muted px-2 py-1 rounded text-muted-foreground">{card.columns}</code>
               </div>
 
-              {status === "uploaded" && result && (
+              {state.status === "uploaded" && (
                 <div className="border border-success/20 bg-success/5 rounded-lg p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-success" />
                     <span className="text-[13px] text-success" style={{ fontWeight: 500 }}>
-                      Загружено {result.insertedCount} из {result.totalRows}
+                      Загружено {state.insertedCount ?? state.totalRows ?? 0} из {state.totalRows ?? 0}
                     </span>
                   </div>
-                  {result.errorCount > 0 && <p className="text-[12px] text-warning">Предупреждений: {result.errorCount}</p>}
-                  <p className="text-[11px] text-muted-foreground break-all">Пачка: {result.importBatchId}</p>
-                  <button className="text-[12px] text-primary hover:underline" onClick={() => navigate(`/uploads/${result.uploadId}/log`)}>
+                  {state.errorCount > 0 && <p className="text-[12px] text-warning">Предупреждений: {state.errorCount}</p>}
+                  {state.filesCount > 1 && <p className="text-[12px] text-muted-foreground">Файлов этого типа: {state.filesCount}</p>}
+                  <p className="text-[11px] text-muted-foreground break-all">Пачка: {state.importBatchId}</p>
+                  <button className="text-[12px] text-primary hover:underline" onClick={() => state.uploadId && navigate(`/uploads/${state.uploadId}/log`)}>
                     Открыть журнал
                   </button>
                 </div>
               )}
 
-              {status === "error" && (
+              {state.status === "error" && (
                 <div className="border border-destructive/20 bg-destructive/5 rounded-lg p-3 flex gap-2 text-[12px] text-destructive">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{errors[card.kind]}</span>
+                  <span>{state.lastError}</span>
+                </div>
+              )}
+              {state.status === "uploaded" && state.lastError && (
+                <div className="border border-destructive/20 bg-destructive/5 rounded-lg p-3 flex gap-2 text-[12px] text-destructive">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>Последняя попытка не загружена: {state.lastError}</span>
                 </div>
               )}
             </div>
@@ -281,7 +388,7 @@ export function UploadsPage() {
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[15px]" style={{ fontWeight: 600 }}>
-            Проверка последней загрузки
+            Проверка активной пачки
           </h3>
           <Label theme={validationLabel.theme}>{validationLabel.text}</Label>
         </div>
@@ -293,23 +400,25 @@ export function UploadsPage() {
                 <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Статус</th>
                 <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Строк</th>
                 <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Добавлено</th>
+                <th className="pb-3 pr-4" style={{ fontWeight: 500 }}>Файлов</th>
                 <th className="pb-3" style={{ fontWeight: 500 }}>Ошибки</th>
               </tr>
             </thead>
             <tbody>
               {csvImportCards.map((card) => {
-                const result = results[card.kind];
+                const state = cardStates[card.kind];
                 return (
                   <tr key={card.kind} className="border-b border-border/50 last:border-0">
                     <td className="py-3 pr-4" style={{ fontWeight: 500 }}>{card.title}</td>
                     <td className="py-3 pr-4">
-                      <Label theme={statuses[card.kind] === "error" ? "danger" : statuses[card.kind] === "uploaded" ? "success" : "info"}>
-                        {statuses[card.kind] === "empty" ? "Ожидает CSV" : statuses[card.kind] === "uploading" ? "Загрузка" : statuses[card.kind] === "uploaded" ? "Загружено" : "Ошибка"}
+                      <Label theme={state.status === "error" ? "danger" : state.status === "uploaded" ? "success" : "info"}>
+                        {state.status === "empty" ? "Ожидает CSV" : state.status === "uploading" ? "Загрузка" : state.status === "uploaded" ? "Загружено" : "Ошибка"}
                       </Label>
                     </td>
-                    <td className="py-3 pr-4">{result?.totalRows ?? "-"}</td>
-                    <td className="py-3 pr-4">{result?.insertedCount ?? "-"}</td>
-                    <td className="py-3 text-warning">{result?.errorCount ?? "-"}</td>
+                    <td className="py-3 pr-4">{state.totalRows ?? "-"}</td>
+                    <td className="py-3 pr-4">{state.insertedCount ?? state.totalRows ?? "-"}</td>
+                    <td className="py-3 pr-4">{state.filesCount || "-"}</td>
+                    <td className="py-3 text-warning">{state.errorCount || "-"}</td>
                   </tr>
                 );
               })}
@@ -333,27 +442,74 @@ export function UploadsPage() {
         </div>
       </div>
 
-      <div className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 sticky bottom-0">
+      <div className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 sticky bottom-0 mb-4">
         <div>
           <p className="text-[13px] text-muted-foreground">После загрузки CSV запустите обработку пачки.</p>
           <p className={`text-[12px] mt-1 ${startHintClass}`}>{startHint}</p>
-          {(startProcessing.error || retryProcessing.error) && <p className="text-[12px] mt-1 text-destructive">{startProcessing.error || retryProcessing.error}</p>}
+          {(startProcessing.error || retryProcessing.error || stopProcessing.error) && <p className="text-[12px] mt-1 text-destructive">{startProcessing.error || retryProcessing.error || stopProcessing.error}</p>}
         </div>
-        <Button
-          view="action"
-          className="text-[13px] h-9"
-          disabled={!canStartProcessing && !isProcessingActive}
-          loading={startProcessing.loading || retryProcessing.loading}
-          onClick={isProcessingActive ? handleOpenProcessing : () => void handleStartProcessing()}
-        >
-          <span className="flex items-center gap-1.5">
-            {isProcessingActive ? "Открыть обработку" : shouldRetryProcessing ? "Перезапустить обработку" : "Начать обработку"}
-            {shouldRetryProcessing ? <RotateCcw className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
-          </span>
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {isProcessingActive && (
+            <Button view="outlined" className="text-[13px] h-9" loading={stopProcessing.loading} onClick={() => void handleStopProcessing()}>
+              <span className="flex items-center gap-1.5">
+                Остановить
+                <Square className="w-4 h-4" />
+              </span>
+            </Button>
+          )}
+          <Button
+            view="action"
+            className="text-[13px] h-9"
+            disabled={!canStartProcessing && !isProcessingActive}
+            loading={startProcessing.loading || retryProcessing.loading}
+            onClick={isProcessingActive ? handleOpenProcessing : () => void handleStartProcessing()}
+          >
+            <span className="flex items-center gap-1.5">
+              {isProcessingActive ? "Открыть обработку" : shouldRetryProcessing ? "Перезапустить обработку" : "Начать обработку"}
+              {shouldRetryProcessing ? <RotateCcw className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+            </span>
+          </Button>
+        </div>
       </div>
     </div>
   );
+}
+
+type ActiveCsvCardState = {
+  status: "empty" | "uploading" | "uploaded" | "error";
+  result?: { uploadId: string; importBatchId: string; totalRows: number; insertedCount: number; errorCount: number };
+  uploadId?: string;
+  importBatchId?: string;
+  totalRows?: number;
+  insertedCount?: number;
+  errorCount: number;
+  filesCount: number;
+  lastError?: string;
+};
+
+function aggregateBatchFiles(uploads: AnyRecord[], kind: CsvKind) {
+  const aggregate = {
+    uploadId: undefined as string | undefined,
+    importBatchId: undefined as string | undefined,
+    totalRows: 0,
+    insertedCount: 0,
+    errorCount: 0,
+    filesCount: 0,
+  };
+  for (const upload of uploads) {
+    const files = (upload.files ?? {}) as Record<string, AnyRecord>;
+    const file = files[kind];
+    if (!file) continue;
+    const summary = (upload.summary ?? {}) as AnyRecord;
+    const rows = Number(file.rowsCount ?? upload.totalRows ?? summary.totalRows ?? 0);
+    aggregate.uploadId = aggregate.uploadId ?? String(upload._id ?? "");
+    aggregate.importBatchId = aggregate.importBatchId ?? String(upload.importBatchId ?? upload._id ?? "");
+    aggregate.totalRows += rows;
+    aggregate.insertedCount += Number(upload.matchedStudents ?? rows);
+    aggregate.errorCount += Number(upload.errorCount ?? summary.errorCount ?? (upload.unresolvedStudents as unknown[] | undefined)?.length ?? 0);
+    aggregate.filesCount += 1;
+  }
+  return aggregate;
 }
 
 function readUploadPageState() {

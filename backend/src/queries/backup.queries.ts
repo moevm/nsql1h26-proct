@@ -1,11 +1,18 @@
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 import { Document, ObjectId } from "mongodb";
 
+import { readBackupPayload } from "../db/backup-payloads.js";
 import { getBackupHistoryCollection, getCollection } from "../db/collections.js";
 import { entityNames, type EntityName } from "../schema/entity.schema.js";
 import type { AuthUser } from "../schema/user.schema.js";
 
 export const BACKUP_FORMAT = "nsql-proctoring-backup";
 export const BACKUP_VERSION = 1;
+export const BACKUP_CONTENT_TYPE = "application/gzip";
+export const BACKUP_CONTENT_ENCODING = "gzip";
+
+const gzipAsync = promisify(gzip);
 
 export type BackupOperation = "export" | "import" | "validate";
 export type BackupOperationStatus = "success" | "failed";
@@ -37,6 +44,10 @@ export type BackupHistoryRecord = {
   status: BackupOperationStatus;
   fileName: string;
   sizeBytes: number;
+  compressedSizeBytes?: number;
+  payloadFileId?: ObjectId;
+  contentType?: typeof BACKUP_CONTENT_TYPE;
+  contentEncoding?: typeof BACKUP_CONTENT_ENCODING;
   collectionCounts: Partial<Record<EntityName, number>>;
   backupVersion?: string;
   appVersion?: string;
@@ -44,6 +55,9 @@ export type BackupHistoryRecord = {
   actorName: string;
   createdAt: Date;
   errorMessage?: string;
+  // Legacy field from the first history-download implementation. Old records remain unavailable for download.
+  payload?: BackupEnvelope;
+  hasPayload?: boolean;
 };
 
 const objectIdKeys = new Set([
@@ -102,11 +116,28 @@ function backupHistoryCollection() {
 }
 
 export function buildBackupFileName(now = new Date()) {
-  return `backup_proctoring_${now.toISOString().replace(/[:.]/g, "-")}.json`;
+  return `backup_proctoring_${now.toISOString().replace(/[:.]/g, "-")}.json.gz`;
 }
 
 export function getPayloadSizeBytes(payload: unknown) {
   return Buffer.byteLength(JSON.stringify(payload), "utf8");
+}
+
+export function ensureGzipBackupFileName(fileName: string) {
+  if (fileName.endsWith(".json.gz")) return fileName;
+  if (fileName.endsWith(".json")) return `${fileName}.gz`;
+  if (fileName.endsWith(".gz")) return fileName;
+  return `${fileName}.json.gz`;
+}
+
+export async function serializeBackupEnvelope(envelope: BackupEnvelope) {
+  const json = Buffer.from(JSON.stringify(envelope), "utf8");
+  const compressed = await gzipAsync(json);
+  return {
+    buffer: compressed,
+    sizeBytes: json.byteLength,
+    compressedSizeBytes: compressed.byteLength,
+  };
 }
 
 function actorName(actor: AuthUser) {
@@ -219,18 +250,32 @@ export async function importBackupEnvelope(payload: BackupEnvelope) {
   return collectionCounts(payload.data);
 }
 
-export async function insertBackupHistory(record: Omit<BackupHistoryRecord, "_id" | "createdAt"> & { createdAt?: Date }) {
+export async function insertBackupHistory(record: Omit<BackupHistoryRecord, "createdAt"> & { createdAt?: Date }) {
   const document: BackupHistoryRecord = { ...record, createdAt: record.createdAt ?? new Date() };
   await backupHistoryCollection().insertOne(document);
   return document;
 }
 
 export async function listBackupHistory(limit = 50) {
-  return backupHistoryCollection()
+  const items = await backupHistoryCollection()
     .find({})
     .sort({ createdAt: -1 })
     .limit(Math.max(1, Math.min(limit, 200)))
     .toArray();
+  return items.map(({ payload, payloadFileId, ...item }) => ({ ...item, hasPayload: Boolean(payloadFileId) }));
+}
+
+export async function getBackupHistoryExport(id: string) {
+  if (!ObjectId.isValid(id)) return null;
+  const record = await backupHistoryCollection().findOne({ _id: new ObjectId(id) });
+  if (!record) return null;
+
+  if (!record.payloadFileId) return null;
+  return {
+    fileName: ensureGzipBackupFileName(record.fileName),
+    buffer: await readBackupPayload(record.payloadFileId),
+    contentType: record.contentType ?? BACKUP_CONTENT_TYPE,
+  };
 }
 
 export async function recordBackupAudit(actor: AuthUser, operation: BackupOperation, status: BackupOperationStatus, details: Document) {

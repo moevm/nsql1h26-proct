@@ -21,13 +21,22 @@ export const uploadStatusLabels = {
   cancelled: { theme: "warning" as const, text: "Остановлено" },
   stale: { theme: "danger" as const, text: "Зависло" },
   pending: { theme: "info" as const, text: "Ожидает" },
+  unknown: { theme: "normal" as const, text: "Неизвестно" },
 };
+
+export function getUploadStatusLabel(status: string | undefined) {
+  return uploadStatusLabels[status as keyof typeof uploadStatusLabels] ?? uploadStatusLabels.unknown;
+}
 
 export const runStatusLabels = {
   success: { theme: "success" as const, label: "Завершено" },
   running: { theme: "info" as const, label: "Выполняется" },
   error: { theme: "danger" as const, label: "Ошибка" },
 };
+
+export function getRunStatusLabel(status: string | undefined) {
+  return runStatusLabels[status as keyof typeof runStatusLabels] ?? runStatusLabels.error;
+}
 
 export const reportDateRangeOptions = [
   { value: "7d", content: "Последние 7 дней" },
