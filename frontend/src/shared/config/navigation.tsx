@@ -25,5 +25,4 @@ export const navItems: NavItem[] = [
   { label: "Пользователи", icon: Users, path: "/users", roles: ["admin"] },
   { label: "Вузы", icon: Building2, path: "/universities", roles: ["admin"] },
   { label: "Аудит", icon: ListTree, path: "/audit", roles: ["admin"] },
-  { label: "Настройки", icon: Settings, path: "/settings" },
 ];

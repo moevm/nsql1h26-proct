@@ -52,7 +52,6 @@ export function AppRouter() {
           <Route path="/universities/:id" element={<RoleGuard roles={["admin"]}><EntityDetailsPage name="universities" /></RoleGuard>} />
           <Route path="/audit" element={<RoleGuard roles={["admin"]}><EntityPage name="audit" /></RoleGuard>} />
           <Route path="/audit/:id" element={<RoleGuard roles={["admin"]}><EntityDetailsPage name="audit" /></RoleGuard>} />
-          <Route path="/settings" element={<div className="flex items-center justify-center h-64 text-muted-foreground">Settings page coming soon</div>} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
