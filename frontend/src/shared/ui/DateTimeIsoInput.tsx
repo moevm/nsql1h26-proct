@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Calendar } from "lucide-react";
-import { fromDateTimePickerValue, isoDateTimePlaceholder, isValidIsoDateTime, toDateTimePickerValue } from "../lib/dateTime";
+import {
+  formatIsoDateTimeDisplay,
+  fromDateTimePickerValue,
+  isoDateTimeFormatTitle,
+  isoDateTimePlaceholder,
+  isValidIsoDateTime,
+  toDateTimePickerValue,
+} from "../lib/dateTime";
 
 type Props = {
   label: string;
   value: string;
   onUpdate: (value: string) => void;
+  hideLabel?: boolean;
+  showIsoHint?: boolean;
 };
 
 function pickerParts(value: string) {
@@ -29,14 +38,18 @@ function normalizeTimePart(value: string, min: number, max: number) {
   return String(numberValue).padStart(2, "0");
 }
 
-export function DateTimeIsoInput({ label, value, onUpdate }: Props) {
+export function DateTimeIsoInput({ label, value, onUpdate, hideLabel = false, showIsoHint = true }: Props) {
+  const inputId = useId();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const invalid = !isValidIsoDateTime(value);
+  const displayValue = editing ? value : formatIsoDateTimeDisplay(value);
   const parts = pickerParts(value);
   const [hourDraft, setHourDraft] = useState(parts.hour);
   const [minuteDraft, setMinuteDraft] = useState(parts.minute);
   const hourInvalid = normalizeTimePart(hourDraft, 0, 23) === undefined;
   const minuteInvalid = normalizeTimePart(minuteDraft, 0, 59) === undefined;
+  const emptyPlaceholder = hideLabel ? label : isoDateTimePlaceholder;
 
   useEffect(() => {
     setHourDraft(parts.hour);
@@ -52,13 +65,26 @@ export function DateTimeIsoInput({ label, value, onUpdate }: Props) {
   }
 
   return (
-    <div className="space-y-1 min-w-0 relative">
+    <div className={`min-w-0 relative ${hideLabel ? "" : "space-y-1.5"}`}>
+      {!hideLabel && (
+        <label className="text-[12px] text-muted-foreground flex items-center gap-1.5" htmlFor={inputId} style={{ fontWeight: 600 }}>
+          <span>{label}</span>
+          {showIsoHint && (
+            <span className="text-[10px] font-normal font-mono text-muted-foreground/70" title={isoDateTimeFormatTitle}>
+              ISO
+            </span>
+          )}
+        </label>
+      )}
       <div className="relative">
         <input
-          className={`w-full min-w-0 h-[40px] pr-10 ${invalid ? "border-destructive" : ""}`}
-          value={value}
+          id={inputId}
+          className={`w-full min-w-0 h-10 pr-10 ${invalid ? "border-destructive" : ""}`}
+          value={displayValue}
           onChange={(event) => onUpdate(event.target.value)}
-          placeholder={isoDateTimePlaceholder}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          placeholder={emptyPlaceholder}
           aria-label={label}
           aria-invalid={invalid}
         />
@@ -74,9 +100,6 @@ export function DateTimeIsoInput({ label, value, onUpdate }: Props) {
       </div>
       {pickerOpen && (
         <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg border border-border bg-card p-3 shadow-lg space-y-2">
-          <div className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>
-            {label}
-          </div>
           <input
             className="w-full"
             type="date"

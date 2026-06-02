@@ -19,7 +19,7 @@ import { useRetryProcessing, useStopProcessing, useUploads } from "../entities/u
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { api } from "../shared/api/client";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
-import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
 
 type SortField = "id" | "date" | "author" | "status";
 type SortDir = "asc" | "desc";
@@ -174,58 +174,57 @@ export function UploadHistoryPage() {
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <TextInput
-            placeholder="ID загрузки"
-            size="l"
-            value={idFilter}
-            onUpdate={setIdFilter}
-            startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
-          />
-          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
-            <DateTimeIsoInput label="Дата от" value={dateFrom} onUpdate={setDateFrom} />
-            <DateTimeIsoInput label="Дата до" value={dateTo} onUpdate={setDateTo} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <FilterFormField label="ID загрузки">
+              <TextInput
+                placeholder="Поиск по ID"
+                size="l"
+                value={idFilter}
+                onUpdate={setIdFilter}
+                startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
+              />
+            </FilterFormField>
+            <FilterFormField label="Статус">
+              <Select
+                value={[statusFilter]}
+                onUpdate={(v) => setStatusFilter(v[0] ?? "all")}
+                options={[
+                  { value: "all", content: "Все статусы" },
+                  { value: "success", content: "Успешно" },
+                  { value: "warning", content: "Предупреждения" },
+                  { value: "error", content: "Ошибка" },
+                  { value: "processing", content: "Обработка" },
+                  { value: "cancelled", content: "Остановлено" },
+                  { value: "stale", content: "Зависло" },
+                ]}
+                size="l"
+                width="max"
+              />
+            </FilterFormField>
+            <FilterFormField label="Автор">
+              <Select
+                value={[authorFilter]}
+                onUpdate={(v) => setAuthorFilter(v[0] ?? "all")}
+                options={[
+                  { value: "all", content: "Все авторы" },
+                  ...authors.map((a) => ({ value: a, content: a })),
+                ]}
+                size="l"
+                width="max"
+              />
+            </FilterFormField>
+            <FilterFormField label="Типы файлов">
+              <TextInput placeholder="Например: moodle, camera" size="l" value={fileTypesFilter} onUpdate={setFileTypesFilter} />
+            </FilterFormField>
           </div>
-          <Select
-            value={[statusFilter]}
-            onUpdate={(v) => setStatusFilter(v[0] ?? "all")}
-            options={[
-              { value: "all", content: "Все статусы" },
-              { value: "success", content: "Успешно" },
-              { value: "warning", content: "Предупреждения" },
-              { value: "error", content: "Ошибка" },
-              { value: "processing", content: "Обработка" },
-              { value: "cancelled", content: "Остановлено" },
-              { value: "stale", content: "Зависло" },
-            ]}
-            size="l"
-          />
-          <Select
-            value={[authorFilter]}
-            onUpdate={(v) => setAuthorFilter(v[0] ?? "all")}
-            options={[
-              { value: "all", content: "Все авторы" },
-              ...authors.map((a) => ({ value: a, content: a })),
-            ]}
-            size="l"
-          />
-          <TextInput
-            placeholder="Типы файлов"
-            size="l"
-            value={fileTypesFilter}
-            onUpdate={setFileTypesFilter}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Файлов от" value={filesMin} onChange={(event) => setFilesMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Файлов до" value={filesMax} onChange={(event) => setFilesMax(event.target.value)} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FilterDateTimeRange label="Дата загрузки" from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Строк от" value={rowsMin} onChange={(event) => setRowsMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Строк до" value={rowsMax} onChange={(event) => setRowsMax(event.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Студентов от" value={studentsMin} onChange={(event) => setStudentsMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Студентов до" value={studentsMax} onChange={(event) => setStudentsMax(event.target.value)} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <FilterNumberRange label="Файлов" from={filesMin} to={filesMax} onFromChange={setFilesMin} onToChange={setFilesMax} />
+            <FilterNumberRange label="Строк" from={rowsMin} to={rowsMax} onFromChange={setRowsMin} onToChange={setRowsMax} />
+            <FilterNumberRange label="Студентов" from={studentsMin} to={studentsMax} onFromChange={setStudentsMin} onToChange={setStudentsMax} />
           </div>
         </div>
       </div>
