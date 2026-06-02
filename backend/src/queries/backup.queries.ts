@@ -256,7 +256,66 @@ export async function insertBackupHistory(record: Omit<BackupHistoryRecord, "cre
   return document;
 }
 
-export async function listBackupHistory(limit = 50) {
+type BackupHistoryFilters = {
+  fileName?: string;
+  createdAtFrom?: string;
+  createdAtTo?: string;
+  sizeMin?: number;
+  sizeMax?: number;
+  actorName?: string;
+  operation?: string;
+  status?: string;
+  details?: string;
+};
+
+function backupHistoryFilter(filters: BackupHistoryFilters) {
+  const filter: Document = {};
+  if (filters.fileName) filter.fileName = { $regex: filters.fileName, $options: "i" };
+  if (filters.actorName) filter.actorName = { $regex: filters.actorName, $options: "i" };
+  if (filters.operation && filters.operation !== "all") filter.operation = filters.operation;
+  if (filters.status && filters.status !== "all") filter.status = filters.status;
+  if (filters.createdAtFrom || filters.createdAtTo) {
+    filter.createdAt = {};
+    if (filters.createdAtFrom) (filter.createdAt as Document).$gte = new Date(filters.createdAtFrom);
+    if (filters.createdAtTo) (filter.createdAt as Document).$lte = new Date(filters.createdAtTo);
+  }
+  if (filters.sizeMin !== undefined || filters.sizeMax !== undefined) {
+    filter.compressedSizeBytes = {};
+    if (filters.sizeMin !== undefined) (filter.compressedSizeBytes as Document).$gte = filters.sizeMin;
+    if (filters.sizeMax !== undefined) (filter.compressedSizeBytes as Document).$lte = filters.sizeMax;
+  }
+  if (filters.details) {
+    filter.$or = [
+      { errorMessage: { $regex: filters.details, $options: "i" } },
+      { backupVersion: { $regex: filters.details, $options: "i" } },
+      { appVersion: { $regex: filters.details, $options: "i" } },
+    ];
+  }
+  return filter;
+}
+
+export async function listBackupHistory(page = 1, limit = 50, filters: BackupHistoryFilters = {}) {
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const filter = backupHistoryFilter(filters);
+  const [items, total] = await Promise.all([
+    backupHistoryCollection()
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit)
+      .toArray(),
+    backupHistoryCollection().countDocuments(filter),
+  ]);
+  return {
+    items: items.map(({ payload, payloadFileId, ...item }) => ({ ...item, hasPayload: Boolean(payloadFileId) })),
+    total,
+    page: safePage,
+    limit: safeLimit,
+  };
+}
+
+export async function listBackupHistoryLegacy(limit = 50) {
   const items = await backupHistoryCollection()
     .find({})
     .sort({ createdAt: -1 })

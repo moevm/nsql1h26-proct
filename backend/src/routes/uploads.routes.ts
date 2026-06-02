@@ -21,6 +21,15 @@ function getValidDateQuery(value: string | undefined) {
   return Number.isNaN(new Date(value).getTime()) ? null : value;
 }
 
+function numericQuery(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getUploadLogTable(value: string | undefined) {
+  return value === "problems" || value === "unmapped" || value === "log" ? value : undefined;
+}
+
 uploadsRouter.get(
   "/uploads/:id/log",
   auth,
@@ -34,10 +43,24 @@ uploadsRouter.get(
 
     const data = await getUploadLog(String(req.params.id), {
       level: getQuery(req.query, "level"),
-      lineFrom: Number(getQuery(req.query, "lineFrom") ?? Number.NEGATIVE_INFINITY),
-      lineTo: Number(getQuery(req.query, "lineTo") ?? Number.POSITIVE_INFINITY),
+      file: getQuery(req.query, "file"),
+      entityType: getQuery(req.query, "entityType"),
+      lineFrom: numericQuery(req.query.lineFrom) ?? Number.NEGATIVE_INFINITY,
+      lineTo: numericQuery(req.query.lineTo) ?? Number.POSITIVE_INFINITY,
       timeFrom,
       timeTo,
+      search: getQuery(req.query, "search"),
+      problemFile: getQuery(req.query, "problemFile"),
+      problemLineFrom: numericQuery(req.query.problemLineFrom),
+      problemLineTo: numericQuery(req.query.problemLineTo),
+      problemContent: getQuery(req.query, "problemContent"),
+      problemError: getQuery(req.query, "problemError"),
+      unmappedId: getQuery(req.query, "unmappedId"),
+      unmappedMatch: getQuery(req.query, "unmappedMatch"),
+      unmappedReason: getQuery(req.query, "unmappedReason"),
+      table: getUploadLogTable(getQuery(req.query, "table")),
+      page: numericQuery(req.query.page),
+      limit: numericQuery(req.query.limit),
     });
 
     if (!data) {
@@ -49,6 +72,7 @@ uploadsRouter.get(
       upload: serializeDocument(data.upload),
       processingLog: data.processingLog,
       unresolvedStudents: data.unresolvedStudents,
+      pagination: data.pagination,
     });
   }),
 );

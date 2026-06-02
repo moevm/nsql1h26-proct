@@ -19,7 +19,9 @@ import type { ProcessingLogRow, ProcessingStageState, ProcessingState } from "..
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { formatDate, formatNumber } from "../shared/lib/format";
 import { dateFilterValue, matchesDateRange, matchesNumberRange } from "../shared/lib/clientFilters";
+import { useClientPagination } from "../shared/lib/useClientPagination";
 import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 
@@ -124,6 +126,7 @@ export function ProcessingPage() {
     if (logSearch && !entry.message.toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
+  const logPagination = useClientPagination(filteredLogEntries, 10, "table-page-size");
   const uploadId = selectedUploadId || String(upload?._id ?? "");
   const openLogEntry = (entry: ProcessingLogRow) => {
     if (!uploadId) return;
@@ -417,7 +420,7 @@ export function ProcessingPage() {
                   <td colSpan={6} className="py-10 text-center text-muted-foreground">Записей по заданным условиям не найдено</td>
                 </tr>
               ) : (
-                filteredLogEntries.map((entry) => (
+                logPagination.paginatedItems.map((entry) => (
                   <tr
                     key={entry.id}
                     className={`border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer ${entry.level === "error" ? "bg-destructive/3" : entry.level === "warn" ? "bg-warning/3" : ""}`}
@@ -444,6 +447,7 @@ export function ProcessingPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination total={logPagination.total} page={logPagination.page} limit={logPagination.limit} onPageChange={logPagination.setPage} onLimitChange={logPagination.setLimit} className="mt-4" />
       </section>
     </div>
   );

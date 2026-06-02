@@ -1,12 +1,16 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Download, History, RotateCcw, Square, Trash2, Upload } from "lucide-react";
-import { Button, Label } from "@gravity-ui/uikit";
+import { AlertTriangle, ArrowRight, CheckCircle2, Download, Filter, History, RotateCcw, Square, Trash2, Upload, X } from "lucide-react";
+import { Button, Label, Select, TextInput } from "@gravity-ui/uikit";
 import { csvImportCards, type CsvKind } from "../features/csv-upload/config/csvImportConfig";
 import { useCsvImport } from "../features/csv-upload/model/useCsvImport";
 import { isActiveProcessingStatus, isRetryableProcessingStatus, statusPriority, uploadStatus } from "../entities/upload/model/adapters";
 import { useRetryProcessing, useStartProcessing, useStopProcessing, useUploads } from "../entities/upload/model/hooks";
 import type { AnyRecord } from "../entities/types";
+import { matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
+import { useClientPagination } from "../shared/lib/useClientPagination";
+import { FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 export function UploadsPage() {
   const navigate = useNavigate();
@@ -15,6 +19,16 @@ export function UploadsPage() {
   const savedBatch = readUploadPageState();
   const [batchMode, setBatchMode] = useState<"new" | "existing">(savedBatch.batchMode);
   const [selectedBatchId, setSelectedBatchId] = useState(savedBatch.selectedBatchId);
+  const [validationTypeFilter, setValidationTypeFilter] = useState("");
+  const [validationStatusFilter, setValidationStatusFilter] = useState("all");
+  const [validationRowsMin, setValidationRowsMin] = useState("");
+  const [validationRowsMax, setValidationRowsMax] = useState("");
+  const [validationInsertedMin, setValidationInsertedMin] = useState("");
+  const [validationInsertedMax, setValidationInsertedMax] = useState("");
+  const [validationFilesMin, setValidationFilesMin] = useState("");
+  const [validationFilesMax, setValidationFilesMax] = useState("");
+  const [validationErrorsMin, setValidationErrorsMin] = useState("");
+  const [validationErrorsMax, setValidationErrorsMax] = useState("");
   const currentBatchIdRef = useRef(savedBatch.batchMode === "existing" ? savedBatch.selectedBatchId : "");
   const [sessionBatchIds, setSessionBatchIds] = useState<Set<string>>(() => new Set());
   const activeBatchId = batchMode === "existing" ? selectedBatchId : undefined;
@@ -141,6 +155,42 @@ export function UploadsPage() {
         ? "Все файлы загружены, можно перезапустить обработку."
         : "Все файлы загружены, можно запускать обработку.";
   const startHintClass = isProcessingActive ? "text-primary" : canStartProcessing ? "text-success" : "text-warning";
+  const validationStatusText = (status: ActiveCsvCardState["status"]) => status === "empty" ? "Ожидает CSV" : status === "uploading" ? "Загрузка" : status === "uploaded" ? "Загружено" : "Ошибка";
+  const hasValidationFilters =
+    validationTypeFilter ||
+    validationStatusFilter !== "all" ||
+    validationRowsMin ||
+    validationRowsMax ||
+    validationInsertedMin ||
+    validationInsertedMax ||
+    validationFilesMin ||
+    validationFilesMax ||
+    validationErrorsMin ||
+    validationErrorsMax;
+  const resetValidationFilters = () => {
+    setValidationTypeFilter("");
+    setValidationStatusFilter("all");
+    setValidationRowsMin("");
+    setValidationRowsMax("");
+    setValidationInsertedMin("");
+    setValidationInsertedMax("");
+    setValidationFilesMin("");
+    setValidationFilesMax("");
+    setValidationErrorsMin("");
+    setValidationErrorsMax("");
+  };
+  const filteredValidationCards = csvImportCards.filter((card) => {
+    const state = cardStates[card.kind];
+    const inserted = Number(state.insertedCount ?? state.totalRows ?? 0);
+    if (!matchesText(card.title, validationTypeFilter)) return false;
+    if (validationStatusFilter !== "all" && state.status !== validationStatusFilter) return false;
+    if (!matchesNumberRange(Number(state.totalRows ?? 0), validationRowsMin, validationRowsMax)) return false;
+    if (!matchesNumberRange(inserted, validationInsertedMin, validationInsertedMax)) return false;
+    if (!matchesNumberRange(Number(state.filesCount ?? 0), validationFilesMin, validationFilesMax)) return false;
+    if (!matchesNumberRange(Number(state.errorCount ?? 0), validationErrorsMin, validationErrorsMax)) return false;
+    return true;
+  });
+  const validationPagination = useClientPagination(filteredValidationCards, 10, "table-page-size");
   const validationLabel = uploadSelectionError
     ? { theme: "warning" as const, text: "Пачка не выбрана" }
     : !activeBatchId
@@ -392,6 +442,46 @@ export function UploadsPage() {
           </h3>
           <Label theme={validationLabel.theme}>{validationLabel.text}</Label>
         </div>
+        <div className="bg-card rounded-xl border border-border p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <span className="text-[13px]" style={{ fontWeight: 500 }}>Фильтр проверки</span>
+            {hasValidationFilters && (
+              <button onClick={resetValidationFilters} className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+                Сбросить
+              </button>
+            )}
+          </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <FilterFormField label="Тип">
+                <TextInput placeholder="Тип файла" size="l" value={validationTypeFilter} onUpdate={setValidationTypeFilter} />
+              </FilterFormField>
+              <FilterFormField label="Статус">
+                <Select
+                  value={[validationStatusFilter]}
+                  onUpdate={(value) => setValidationStatusFilter(value[0] ?? "all")}
+                  options={[
+                    { value: "all", content: "Все статусы" },
+                    { value: "empty", content: "Ожидает CSV" },
+                    { value: "uploading", content: "Загрузка" },
+                    { value: "uploaded", content: "Загружено" },
+                    { value: "error", content: "Ошибка" },
+                  ]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
+              <FilterNumberRange label="Строк" from={validationRowsMin} to={validationRowsMax} onFromChange={setValidationRowsMin} onToChange={setValidationRowsMax} />
+              <FilterNumberRange label="Добавлено" from={validationInsertedMin} to={validationInsertedMax} onFromChange={setValidationInsertedMin} onToChange={setValidationInsertedMax} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FilterNumberRange label="Файлов" from={validationFilesMin} to={validationFilesMax} onFromChange={setValidationFilesMin} onToChange={setValidationFilesMax} />
+              <FilterNumberRange label="Ошибки" from={validationErrorsMin} to={validationErrorsMax} onFromChange={setValidationErrorsMin} onToChange={setValidationErrorsMax} />
+            </div>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -405,14 +495,20 @@ export function UploadsPage() {
               </tr>
             </thead>
             <tbody>
-              {csvImportCards.map((card) => {
+              {validationPagination.total === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-10 text-center text-muted-foreground">
+                    По заданным условиям файлов не найдено
+                  </td>
+                </tr>
+              ) : validationPagination.paginatedItems.map((card) => {
                 const state = cardStates[card.kind];
                 return (
                   <tr key={card.kind} className="border-b border-border/50 last:border-0">
                     <td className="py-3 pr-4" style={{ fontWeight: 500 }}>{card.title}</td>
                     <td className="py-3 pr-4">
                       <Label theme={state.status === "error" ? "danger" : state.status === "uploaded" ? "success" : "info"}>
-                        {state.status === "empty" ? "Ожидает CSV" : state.status === "uploading" ? "Загрузка" : state.status === "uploaded" ? "Загружено" : "Ошибка"}
+                        {validationStatusText(state.status)}
                       </Label>
                     </td>
                     <td className="py-3 pr-4">{state.totalRows ?? "-"}</td>
@@ -425,6 +521,14 @@ export function UploadsPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={validationPagination.total}
+          page={validationPagination.page}
+          limit={validationPagination.limit}
+          onPageChange={validationPagination.setPage}
+          onLimitChange={validationPagination.setLimit}
+          className="mt-4"
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

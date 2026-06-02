@@ -1,6 +1,6 @@
 import { type MouseEvent, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Search, Filter, RefreshCw, Download, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, Trash2 } from "lucide-react";
+import { Search, Filter, RefreshCw, Download, ZoomIn, ZoomOut, AlertTriangle, Trash2 } from "lucide-react";
 import { Button, TextInput, Select, Switch, Label } from "@gravity-ui/uikit";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { SessionDrawer } from "../widgets/session-drawer/SessionDrawer";
@@ -10,6 +10,9 @@ import { useClusteringResult, useClusteringRuns } from "../entities/clustering/m
 import type { ResultSessionRow } from "../entities/clustering/model/types";
 import { clusterColors } from "../shared/config/ui";
 import { getNested } from "../shared/lib/object";
+import { readStoredPageSize, writeStoredPageSize } from "../shared/lib/paginationStorage";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -45,6 +48,8 @@ function getClusterColor(cluster: string) {
 
 type ChartPoint = { x: number; y: number };
 type ChartDomain = { x: [number, number]; y: [number, number] };
+type ClusterTableRow = { id: string; size: number; centroid: string; anomalyRate: number };
+type PaginationMeta = { total: number; page: number; limit: number };
 
 function pointFromMouse(event: MouseEvent<HTMLDivElement>): ChartPoint {
   const rect = event.currentTarget.getBoundingClientRect();
@@ -70,10 +75,6 @@ export function ResultsPage() {
   const navigate = useNavigate();
   const { runs: latestRuns, loading: runsLoading } = useClusteringRuns(1);
   const actualRunId = runId ?? latestRuns[0]?.id;
-  const { result, loading: resultLoading } = useClusteringResult(actualRunId);
-  const run = (result?.run ?? result) as AnyRecord | undefined;
-  const resultSessions = (result?.sessions ?? []) as AnyRecord[];
-  const resultStudents = (result?.students ?? []) as AnyRecord[];
   const [selectedSession, setSelectedSession] = useState<ResultSessionRow | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [chartType, setChartType] = useState<"scatter" | "density">("scatter");
@@ -81,15 +82,76 @@ export function ResultsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [clusterFilter, setClusterFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
+  const [sessionDateFrom, setSessionDateFrom] = useState("");
+  const [sessionDateTo, setSessionDateTo] = useState("");
+  const [distanceMin, setDistanceMin] = useState("");
+  const [distanceMax, setDistanceMax] = useState("");
+  const [clusterIdFilter, setClusterIdFilter] = useState("");
+  const [clusterSizeMin, setClusterSizeMin] = useState("");
+  const [clusterSizeMax, setClusterSizeMax] = useState("");
+  const [clusterCentroidFilter, setClusterCentroidFilter] = useState("");
+  const [clusterAnomalyMin, setClusterAnomalyMin] = useState("");
+  const [clusterAnomalyMax, setClusterAnomalyMax] = useState("");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [manualDomain, setManualDomain] = useState<ChartDomain | null>(null);
   const [dragStart, setDragStart] = useState<ChartPoint | null>(null);
   const [dragEnd, setDragEnd] = useState<ChartPoint | null>(null);
   const [activeTab, setActiveTab] = useState<"sessions" | "clusters">("sessions");
+  const [sessionsPage, setSessionsPage] = useState(1);
+  const [sessionsLimit, setSessionsLimit] = useState(() => readStoredPageSize("table-page-size", 15));
+  const [clustersPage, setClustersPage] = useState(1);
+  const [clustersLimit, setClustersLimit] = useState(() => readStoredPageSize("table-page-size", 10));
 
-  const assignments = useMemo(() => (getNested(run, "results.sessionAssignments") as AnyRecord[] | undefined) ?? [], [run]);
-  const clusters = useMemo(() => (getNested(run, "results.clusters") as AnyRecord[] | undefined) ?? [], [run]);
+  const resultQuery = useMemo(() => ({
+    sessionsPage,
+    sessionsLimit,
+    clustersPage,
+    clustersLimit,
+    sessionSearch: searchQuery,
+    sessionCluster: clusterFilter !== "all" ? clusterFilter : undefined,
+    sessionStatus: statusFilter !== "all" ? statusFilter : undefined,
+    sessionDateFrom,
+    sessionDateTo,
+    distanceMin,
+    distanceMax,
+    clusterId: clusterIdFilter,
+    clusterSizeMin,
+    clusterSizeMax,
+    clusterCentroid: clusterCentroidFilter,
+    clusterAnomalyMin,
+    clusterAnomalyMax,
+  }), [
+    clusterAnomalyMax,
+    clusterAnomalyMin,
+    clusterCentroidFilter,
+    clusterFilter,
+    clusterIdFilter,
+    clusterSizeMax,
+    clusterSizeMin,
+    clustersLimit,
+    clustersPage,
+    distanceMax,
+    distanceMin,
+    searchQuery,
+    sessionDateFrom,
+    sessionDateTo,
+    sessionsLimit,
+    sessionsPage,
+    statusFilter,
+  ]);
+
+  const { result, loading: resultLoading } = useClusteringResult(actualRunId, resultQuery);
+  const run = (result?.run ?? result) as AnyRecord | undefined;
+  const resultSessions = (result?.sessions ?? []) as AnyRecord[];
+  const resultStudents = (result?.students ?? []) as AnyRecord[];
+  const pagination = (result?.pagination ?? {}) as { sessions?: PaginationMeta; clusters?: PaginationMeta };
+  const sessionsPagination = pagination.sessions ?? { total: 0, page: sessionsPage, limit: sessionsLimit };
+  const clustersPagination = pagination.clusters ?? { total: 0, page: clustersPage, limit: clustersLimit };
+
+  const allAssignments = useMemo(() => (getNested(run, "results.sessionAssignments") as AnyRecord[] | undefined) ?? [], [run]);
+  const assignments = useMemo(() => (result?.assignments as AnyRecord[] | undefined) ?? allAssignments, [allAssignments, result?.assignments]);
+  const allClusters = useMemo(() => (getNested(run, "results.clusters") as AnyRecord[] | undefined) ?? [], [run]);
+  const clusters = useMemo(() => (result?.clusters as AnyRecord[] | undefined) ?? allClusters, [allClusters, result?.clusters]);
   const studentsById = useMemo(() => new Map(resultStudents.map((student) => [String(student._id), student])), [resultStudents]);
   const sessionsById = useMemo(() => new Map(resultSessions.map((session) => [String(session._id), session])), [resultSessions]);
 
@@ -101,6 +163,7 @@ export function ResultsPage() {
       id: String(assignment.sessionId ?? index),
       student: String(student?.fullName ?? session?.studentId ?? assignment.sessionId ?? "—"),
       date: session?.startTime ? new Date(String(session.startTime)).toLocaleString("ru-RU") : "—",
+      dateRaw: String(session?.startTime ?? ""),
       cluster: clusterLabel(assignment.clusterId),
       anomaly: Boolean(assignment.isAnomaly),
       distanceToCentroid: Number.isFinite(distanceToCentroid) ? distanceToCentroid : undefined,
@@ -108,20 +171,14 @@ export function ResultsPage() {
     };
   });
 
-  const filteredSessions = sessionRows.filter((s) => {
-    if (searchQuery && !s.student.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (clusterFilter !== "all" && s.cluster !== clusterFilter) return false;
-    if (statusFilter === "anomaly" && !s.anomaly) return false;
-    if (statusFilter === "normal" && s.anomaly) return false;
-    return true;
-  });
-  const pageSize = 15;
-  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const paginatedSessions = filteredSessions.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const clusterRows: ClusterTableRow[] = clusters.map((cluster, index) => ({
+    id: clusterLabel(cluster.clusterId ?? index),
+    size: Number(cluster.size ?? 0),
+    centroid: Array.isArray(cluster.centroid) ? cluster.centroid.slice(0, 3).join(", ") : "—",
+    anomalyRate: Number(Number(cluster.anomalyRate ?? 0) * 100),
+  }));
 
-  const scatterData = assignments.flatMap((assignment, index) => {
-    const row = sessionRows[index] ?? sessionRows[0];
+  const scatterData = allAssignments.flatMap((assignment) => {
     const coords = (assignment.reducedCoords ?? {}) as AnyRecord;
     const x = Number(coords.x);
     const y = Number(coords.y);
@@ -129,8 +186,8 @@ export function ResultsPage() {
     return [{
       x,
       y,
-      cluster: row?.cluster ?? "C1",
-      student: row?.student ?? String(assignment.sessionId ?? "—"),
+      cluster: clusterLabel(assignment.clusterId),
+      student: String(assignment.sessionId ?? "—"),
       anomaly: Boolean(assignment.isAnomaly),
     }];
   });
@@ -149,9 +206,12 @@ export function ResultsPage() {
   } : null;
   const densityRows = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const session of sessionRows) counts.set(session.cluster, (counts.get(session.cluster) ?? 0) + 1);
+    for (const assignment of allAssignments) {
+      const label = clusterLabel(assignment.clusterId);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
     return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([cluster, count]) => ({ cluster, count }));
-  }, [sessionRows]);
+  }, [allAssignments]);
   const dynamicClusterOptions = useMemo(() => [
     { value: "all", content: "Все" },
     ...densityRows.map((row) => ({ value: row.cluster, content: row.cluster })),
@@ -160,7 +220,7 @@ export function ResultsPage() {
 
   const kpis = [
     { label: "Всего сессий", value: String(getNested(run, "results.totalSessions") ?? resultSessions.length) },
-    { label: "Найдено кластеров", value: String(getNested(run, "results.clusterCount") ?? clusters.length) },
+    { label: "Найдено кластеров", value: String(getNested(run, "results.clusterCount") ?? allClusters.length) },
     { label: "Обнаружено аномалий", value: String(getNested(run, "results.anomalyCount") ?? 0) },
     { label: "Доля аномалий", value: `${Number((Number(getNested(run, "results.anomalyRate") ?? 0) * 100).toFixed(1))}%` },
     { label: "Ср. уверенность", value: String(getNested(run, "results.silhouetteScore") ?? "—") },
@@ -169,6 +229,16 @@ export function ResultsPage() {
   const handleRowClick = (session: ResultSessionRow) => {
     setSelectedSession(session);
     setDrawerOpen(true);
+  };
+  const updateSessionsLimit = (limit: number) => {
+    writeStoredPageSize("table-page-size", limit);
+    setSessionsLimit(limit);
+    setSessionsPage(1);
+  };
+  const updateClustersLimit = (limit: number) => {
+    writeStoredPageSize("table-page-size", limit);
+    setClustersLimit(limit);
+    setClustersPage(1);
   };
   const deleteCurrentRun = async () => {
     if (!actualRunId || !window.confirm("Удалить этот результат кластеризации?")) return;
@@ -250,16 +320,20 @@ export function ResultsPage() {
           {activeTab === "sessions" ? (
             <>
               <div className="flex flex-wrap gap-2 mb-4">
-                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="l" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); setPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
-                <Select value={[clusterFilter]} onUpdate={(vals) => { setClusterFilter(vals[0]); setPage(1); }} options={dynamicClusterOptions} placeholder="Кластер" size="s" />
-                <Select value={[statusFilter]} onUpdate={(vals) => { setStatusFilter(vals[0]); setPage(1); }} options={[{ value: "all", content: "Все" }, { value: "anomaly", content: "Аномалия" }, { value: "normal", content: "Норма" }]} placeholder="Статус" size="s" />
+                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="l" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); setSessionsPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
+                <Select value={[clusterFilter]} onUpdate={(vals) => { setClusterFilter(vals[0]); setSessionsPage(1); }} options={dynamicClusterOptions} placeholder="Кластер" size="s" />
+                <Select value={[statusFilter]} onUpdate={(vals) => { setStatusFilter(vals[0]); setSessionsPage(1); }} options={[{ value: "all", content: "Все" }, { value: "anomaly", content: "Аномалия" }, { value: "normal", content: "Норма" }]} placeholder="Статус" size="s" />
                 <Button view="outlined" size="s" className="h-8 w-8 p-0"><Filter className="w-3.5 h-3.5" /></Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <FilterDateTimeRange label="Дата" from={sessionDateFrom} to={sessionDateTo} onFromChange={(value) => { setSessionDateFrom(value); setSessionsPage(1); }} onToChange={(value) => { setSessionDateTo(value); setSessionsPage(1); }} />
+                <FilterNumberRange label="Расстояние" from={distanceMin} to={distanceMax} onFromChange={(value) => { setDistanceMin(value); setSessionsPage(1); }} onToChange={(value) => { setDistanceMax(value); setSessionsPage(1); }} />
               </div>
               <div className="max-h-[430px] overflow-auto pr-1">
                 <table className="w-full text-[12px]">
                   <thead className="sticky top-0 bg-card z-10"><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Студент</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Дата</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Кластер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Аномалия</th><th className="pb-2" style={{ fontWeight: 500 }}>Расст.</th></tr></thead>
                   <tbody>
-                    {paginatedSessions.map((s) => (
+                    {sessionRows.map((s) => (
                       <tr key={s.id} onClick={() => handleRowClick(s)} className={`border-b border-border/50 cursor-pointer transition-colors ${selectedSession?.id === s.id ? "bg-primary/5" : "hover:bg-muted/50"}`}>
                         <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{s.student}</td>
                         <td className="py-2.5 pr-3 text-muted-foreground font-mono text-[11px]">{s.date}</td>
@@ -271,35 +345,35 @@ export function ResultsPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between mt-4 text-[12px] text-muted-foreground">
-                <span>Показано {paginatedSessions.length} из {filteredSessions.length}</span>
-                <div className="flex items-center gap-1">
-                  <Button view="flat" size="s" className="h-7 w-7 p-0" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button>
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => index + 1).map((p) => <Button key={p} view={safePage === p ? "action" : "flat"} size="s" className="h-7 w-7 p-0 text-[12px]" onClick={() => setPage(p)}>{p}</Button>)}
-                  {totalPages > 5 && <span>...</span>}
-                  <Button view="flat" size="s" className="h-7 w-7 p-0" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button>
-                </div>
-              </div>
+              <TablePagination total={sessionsPagination.total} page={sessionsPagination.page} limit={sessionsPagination.limit} onPageChange={setSessionsPage} onLimitChange={updateSessionsLimit} className="mt-4" />
             </>
           ) : (
             <div className="max-h-[430px] overflow-auto pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <FilterFormField label="Кластер">
+                  <TextInput placeholder="Например: C1" size="m" value={clusterIdFilter} onUpdate={(value) => { setClusterIdFilter(value); setClustersPage(1); }} />
+                </FilterFormField>
+                <FilterFormField label="Центроид">
+                  <TextInput placeholder="Фрагмент значения" size="m" value={clusterCentroidFilter} onUpdate={(value) => { setClusterCentroidFilter(value); setClustersPage(1); }} />
+                </FilterFormField>
+                <FilterNumberRange label="Размер" from={clusterSizeMin} to={clusterSizeMax} onFromChange={(value) => { setClusterSizeMin(value); setClustersPage(1); }} onToChange={(value) => { setClusterSizeMax(value); setClustersPage(1); }} />
+                <FilterNumberRange label="Аномалии, %" from={clusterAnomalyMin} to={clusterAnomalyMax} onFromChange={(value) => { setClusterAnomalyMin(value); setClustersPage(1); }} onToChange={(value) => { setClusterAnomalyMax(value); setClustersPage(1); }} />
+              </div>
               <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-card z-10"><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Кластер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Размер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Центроид</th><th className="pb-2" style={{ fontWeight: 500 }}>Аномалии</th></tr></thead>
                 <tbody>
-                  {clusters.map((c, index) => {
-                    const id = clusterLabel(c.clusterId ?? index);
-                    return (
-                      <tr key={id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                        <td className="py-2.5 pr-3"><span className="px-2 py-0.5 rounded text-[11px] text-white" style={{ fontWeight: 500, backgroundColor: getClusterColor(id) }}>{id}</span></td>
-                        <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{String(c.size ?? 0)}</td>
-                        <td className="py-2.5 pr-3 text-muted-foreground">{Array.isArray(c.centroid) ? c.centroid.slice(0, 3).join(", ") : "—"}</td>
-                        <td className="py-2.5"><span className={Number(c.anomalyRate ?? 0) > 0.05 ? "text-destructive" : "text-success"} style={{ fontWeight: 500 }}>{Number(Number(c.anomalyRate ?? 0) * 100).toFixed(1)}%</span></td>
-                      </tr>
-                    );
-                  })}
+                  {clusterRows.map((c) => (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
+                      <td className="py-2.5 pr-3"><span className="px-2 py-0.5 rounded text-[11px] text-white" style={{ fontWeight: 500, backgroundColor: getClusterColor(c.id) }}>{c.id}</span></td>
+                      <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{String(c.size)}</td>
+                      <td className="py-2.5 pr-3 text-muted-foreground">{c.centroid}</td>
+                      <td className="py-2.5"><span className={c.anomalyRate > 5 ? "text-destructive" : "text-success"} style={{ fontWeight: 500 }}>{c.anomalyRate.toFixed(1)}%</span></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-              <p className="text-[11px] text-muted-foreground mt-3">Показаны средние значения метрик по каждому кластеру. Всего сессий: {assignments.length}.</p>
+              <p className="text-[11px] text-muted-foreground mt-3">Показаны средние значения метрик по каждому кластеру. Всего сессий: {String(getNested(run, "results.totalSessions") ?? allAssignments.length)}.</p>
+              <TablePagination total={clustersPagination.total} page={clustersPagination.page} limit={clustersPagination.limit} onPageChange={setClustersPage} onLimitChange={updateClustersLimit} className="mt-4" />
             </div>
           )}
         </div>

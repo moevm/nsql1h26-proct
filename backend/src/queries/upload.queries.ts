@@ -36,7 +36,27 @@ function parseTimeBound(value: string | undefined, fallback: number) {
 
 export async function getUploadLog(
   uploadId: string,
-  filters: { level?: string; lineFrom?: number; lineTo?: number; timeFrom?: string; timeTo?: string },
+  filters: {
+    level?: string;
+    file?: string;
+    entityType?: string;
+    lineFrom?: number;
+    lineTo?: number;
+    timeFrom?: string;
+    timeTo?: string;
+    search?: string;
+    problemFile?: string;
+    problemLineFrom?: number;
+    problemLineTo?: number;
+    problemContent?: string;
+    problemError?: string;
+    unmappedId?: string;
+    unmappedMatch?: string;
+    unmappedReason?: string;
+    table?: "log" | "problems" | "unmapped";
+    page?: number;
+    limit?: number;
+  },
 ) {
   if (!ObjectId.isValid(uploadId)) return null;
 
@@ -64,6 +84,7 @@ export async function getUploadLog(
         return (!filters.level || entry.level === filters.level) && line >= lineFrom && line <= lineTo && matchesTime;
       }),
   );
+  const problemRows = processingLog.filter((entry) => String(entry.level) !== "info");
 
   const firstUpload = uploads[0];
   const userId = firstUpload?.userId as ObjectId | undefined;
@@ -100,13 +121,57 @@ export async function getUploadLog(
     upload.createdByName = createdByName;
   }
 
+  const unresolvedStudents = mergeUnresolvedStudents(
+    [],
+    uploads.flatMap((upload) => (upload.unresolvedStudents as UnresolvedStudent[] | undefined) ?? []),
+  );
+  const safePage = Math.max(1, filters.page ?? 1);
+  const safeLimit = Math.max(1, Math.min(filters.limit ?? 200, 200));
+  const usePagination = Boolean(filters.table && filters.page && filters.limit);
+  const slice = <T>(items: T[]) => (usePagination ? items.slice((safePage - 1) * safeLimit, safePage * safeLimit) : items);
+  const textMatch = (value: unknown, query: string | undefined) => !query || String(value ?? "").toLowerCase().includes(query.toLowerCase());
+  const rangeMatch = (value: unknown, from: number | undefined, to: number | undefined) => {
+    const numeric = Number(value ?? 0);
+    return numeric >= (from ?? Number.NEGATIVE_INFINITY) && numeric <= (to ?? Number.POSITIVE_INFINITY);
+  };
+  const entityMatch = (value: unknown, entityType: string | undefined) => {
+    if (!entityType || entityType === "all") return true;
+    const raw = String(value ?? "");
+    if (entityType === "student") return raw.includes("student");
+    if (entityType === "camera") return raw.includes("ocr") || raw.includes("camera");
+    return !raw.includes("student") && !raw.includes("ocr") && !raw.includes("camera");
+  };
+
+  const filteredLog = processingLog.filter((entry) => {
+    return (
+      (!filters.file || filters.file === "all" || String(entry.sourceFileKey ?? "csv") === filters.file) &&
+      entityMatch(entry.entityType, filters.entityType) &&
+      textMatch(entry.message, filters.search)
+    );
+  });
+  const filteredProblemRows = problemRows.filter((entry) => {
+    return (
+      textMatch(entry.sourceFileKey ?? "csv", filters.problemFile) &&
+      rangeMatch(entry.line, filters.problemLineFrom, filters.problemLineTo) &&
+      textMatch(entry.rowContent ?? "—", filters.problemContent) &&
+      textMatch(entry.message ?? "—", filters.problemError)
+    );
+  });
+  const filteredUnresolvedStudents = unresolvedStudents.filter((student) => {
+    return textMatch(student.externalId ?? (student as Document).id, filters.unmappedId) && textMatch(student.possibleMatch ?? "—", filters.unmappedMatch) && textMatch(student.reason ?? "Не сопоставлен", filters.unmappedReason);
+  });
+
+  const activeItems = filters.table === "problems" ? filteredProblemRows : filters.table === "unmapped" ? filteredUnresolvedStudents : filteredLog;
+
   return {
     upload,
-    processingLog,
-    unresolvedStudents: mergeUnresolvedStudents(
-      [],
-      uploads.flatMap((upload) => (upload.unresolvedStudents as UnresolvedStudent[] | undefined) ?? []),
-    ),
+    processingLog: filters.table === "unmapped" ? [] : slice(filters.table === "problems" ? filteredProblemRows : filteredLog),
+    unresolvedStudents: filters.table === "unmapped" ? slice(filteredUnresolvedStudents) : usePagination ? [] : filteredUnresolvedStudents,
+    pagination: {
+      total: activeItems.length,
+      page: safePage,
+      limit: safeLimit,
+    },
   };
 }
 

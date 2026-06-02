@@ -67,6 +67,7 @@ export const entityConfigs: Record<string, EntityConfig> = {
       { key: "createdAt", label: "Создана" },
     ],
     filters: [
+      textFilter("_id", "ID загрузки"),
       { key: "status", label: "Статус", type: "select", options: ["pending", "processing", "done", "done_with_warnings", "error"] },
       textFilter("importBatchId", "ID пачки"),
       dateTimeFilters("createdAt", "Дата создания"),
@@ -237,10 +238,12 @@ export const entityConfigs: Record<string, EntityConfig> = {
       { key: "results.anomalyCount", label: "Аномалий" },
     ],
     filters: [
+      textFilter("_id", "ID запуска"),
       { key: "algorithm", label: "Алгоритм", type: "select", options: ["kmeans", "dbscan"] },
       { key: "status", label: "Статус", type: "select", options: ["running", "done", "error"] },
       dateTimeFilters("startedAt", "Начало"),
       numberFilters("results.totalSessions", "Количество сессий"),
+      numberFilters("results.clusterCount", "Количество кластеров"),
       numberFilters("results.anomalyCount", "Количество аномалий"),
     ],
     createTemplate: { algorithm: "kmeans", status: "done", parameters: {}, results: {} },

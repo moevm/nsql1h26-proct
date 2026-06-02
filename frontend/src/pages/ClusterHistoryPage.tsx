@@ -5,13 +5,17 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { runStatusLabels } from "../shared/config/ui";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
+import { readStoredPageSize, writeStoredPageSize } from "../shared/lib/paginationStorage";
 import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 type SortField = "id" | "startedAt" | "algorithm" | "status";
 
 export function ClusterHistoryPage() {
   const navigate = useNavigate();
-  const { runs, deleteRun } = useClusteringRuns(50);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(() => readStoredPageSize("table-page-size", 10));
+  const { runs, total, deleteRun } = useClusteringRuns({ page, limit });
   const [idFilter, setIdFilter] = useState("");
   const [startedFrom, setStartedFrom] = useState("");
   const [startedTo, setStartedTo] = useState("");
@@ -69,6 +73,12 @@ export function ClusterHistoryPage() {
     setAnomaliesMax("");
     setStatusFilter("all");
     setSubsetFilter("");
+    setPage(1);
+  };
+  const updateLimit = (nextLimit: number) => {
+    writeStoredPageSize("table-page-size", nextLimit);
+    setLimit(nextLimit);
+    setPage(1);
   };
   const startedFromTime = dateFilterValue(startedFrom);
   const startedToTime = dateFilterValue(startedTo);
@@ -224,6 +234,14 @@ export function ClusterHistoryPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={hasFilters ? filtered.length : total}
+          page={hasFilters ? 1 : page}
+          limit={limit}
+          onPageChange={setPage}
+          onLimitChange={updateLimit}
+          className="mt-4"
+        />
       </div>
     </div>
   );

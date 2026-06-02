@@ -6,6 +6,8 @@ import { AnyRecord, EntityConfig, printable, valueByPath } from "../../entities/
 import { useUrlFilters } from "../../features/filtering/useUrlFilters";
 import { useModal } from "../../app/providers/ModalProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { readStoredPageSize, writeStoredPageSize } from "../../shared/lib/paginationStorage";
+import { TablePagination } from "../../shared/ui/TablePagination";
 
 type Props = {
   config: EntityConfig;
@@ -52,9 +54,15 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
   const { openModal, closeModal } = useModal();
   const { user } = useAuth();
   const filters = useUrlFilters(config.filters);
-  const query = useMemo(() => buildQuery(params), [params]);
+  const storageKey = "table-page-size";
   const requestedPage = Math.max(1, Number(params.get("page") ?? 1) || 1);
-  const requestedLimit = Math.min(200, Math.max(5, Number(params.get("limit") ?? 50) || 50));
+  const requestedLimit = Math.min(200, Math.max(1, Number(params.get("limit") ?? readStoredPageSize(storageKey, 50)) || 50));
+  const query = useMemo(() => {
+    const next = new URLSearchParams(params);
+    next.set("page", String(requestedPage));
+    next.set("limit", String(requestedLimit));
+    return buildQuery(next);
+  }, [params, requestedLimit, requestedPage]);
 
   function setPage(page: number) {
     const next = new URLSearchParams(params);
@@ -62,10 +70,11 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
     setParams(next);
   }
 
-  function setLimit(limit: string) {
+  function setLimit(limit: number) {
     const next = new URLSearchParams(params);
-    next.set("limit", limit);
+    next.set("limit", String(limit));
     next.set("page", "1");
+    writeStoredPageSize(storageKey, limit);
     setParams(next);
   }
 
@@ -112,12 +121,6 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
             <div>
               Найдено: <span className="text-foreground" style={{ fontWeight: 500 }}>{data.total}</span>
             </div>
-            <div>
-              Показаны записи{" "}
-              <span className="text-foreground" style={{ fontWeight: 500 }}>
-                {data.total === 0 ? 0 : (data.page - 1) * data.limit + 1}-{Math.min(data.page * data.limit, data.total)}
-              </span>
-            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
@@ -156,40 +159,13 @@ export function EntityTable({ config, rowLink, extraActions }: Props) {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t border-border text-[13px]">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <span>На странице</span>
-              <select
-                className="h-[34px]"
-                value={String(data.limit ?? requestedLimit)}
-                onChange={(event) => setLimit(event.target.value)}
-                aria-label="Количество записей на странице"
-              >
-                {[10, 25, 50, 100, 200].map((limit) => (
-                  <option key={limit} value={limit}>
-                    {limit}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="button button_secondary" type="button" disabled={(data.page ?? requestedPage) <= 1} onClick={() => setPage((data.page ?? requestedPage) - 1)}>
-                Назад
-              </button>
-              <span className="text-muted-foreground">
-                Страница <span className="text-foreground" style={{ fontWeight: 500 }}>{data.page ?? requestedPage}</span> из{" "}
-                <span className="text-foreground" style={{ fontWeight: 500 }}>{Math.max(1, Math.ceil(data.total / (data.limit || requestedLimit)))}</span>
-              </span>
-              <button
-                className="button button_secondary"
-                type="button"
-                disabled={(data.page ?? requestedPage) >= Math.max(1, Math.ceil(data.total / (data.limit || requestedLimit)))}
-                onClick={() => setPage((data.page ?? requestedPage) + 1)}
-              >
-                Вперёд
-              </button>
-            </div>
-          </div>
+          <TablePagination
+            total={data.total}
+            page={data.page ?? requestedPage}
+            limit={data.limit || requestedLimit}
+            onPageChange={setPage}
+            onLimitChange={setLimit}
+          />
         </>
       )}
     </section>
