@@ -19,7 +19,7 @@ import type { ProcessingLogRow, ProcessingStageState, ProcessingState } from "..
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { formatDate, formatNumber } from "../shared/lib/format";
 import { dateFilterValue, matchesDateRange, matchesNumberRange } from "../shared/lib/clientFilters";
-import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 
@@ -339,50 +339,59 @@ export function ProcessingPage() {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="grid grid-cols-2 gap-2 xl:col-span-2">
-              <DateTimeIsoInput label="Время от" value={logTimeFrom} onUpdate={setLogTimeFrom} />
-              <DateTimeIsoInput label="Время до" value={logTimeTo} onUpdate={setLogTimeTo} />
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <FilterFormField label="Поиск">
+                <TextInput
+                  placeholder="Текст в сообщениях"
+                  size="l"
+                  value={logSearch}
+                  onUpdate={setLogSearch}
+                  startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
+                />
+              </FilterFormField>
+              <FilterFormField label="Уровень">
+                <Select
+                  value={[logLevelFilter]}
+                  onUpdate={(value) => setLogLevelFilter(value[0] ?? "all")}
+                  options={[
+                    { value: "all", content: "Все уровни" },
+                    { value: "info", content: "info" },
+                    { value: "warn", content: "warn" },
+                    { value: "error", content: "error" },
+                  ]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
+              <FilterFormField label="Файл">
+                <Select
+                  value={[logFileFilter]}
+                  onUpdate={(value) => setLogFileFilter(value[0] ?? "all")}
+                  options={[{ value: "all", content: "Все файлы" }, ...logFiles.map((file) => ({ value: file, content: file }))]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
+              <FilterFormField label="Сущность">
+                <Select
+                  value={[logEntityFilter]}
+                  onUpdate={(value) => setLogEntityFilter(value[0] ?? "all")}
+                  options={[
+                    { value: "all", content: "Все сущности" },
+                    { value: "student", content: "Студент" },
+                    { value: "moodle", content: "Строка Moodle" },
+                    { value: "camera", content: "Запись камеры" },
+                  ]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
             </div>
-            <Select
-              value={[logLevelFilter]}
-              onUpdate={(value) => setLogLevelFilter(value[0] ?? "all")}
-              options={[
-                { value: "all", content: "Все уровни" },
-                { value: "info", content: "info" },
-                { value: "warn", content: "warn" },
-                { value: "error", content: "error" },
-              ]}
-              size="m"
-            />
-            <Select
-              value={[logFileFilter]}
-              onUpdate={(value) => setLogFileFilter(value[0] ?? "all")}
-              options={[{ value: "all", content: "Все файлы" }, ...logFiles.map((file) => ({ value: file, content: file }))]}
-              size="m"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <input className="w-full h-10" type="number" placeholder="Строка от" value={logLineMin} onChange={(event) => setLogLineMin(event.target.value)} />
-              <input className="w-full h-10" type="number" placeholder="Строка до" value={logLineMax} onChange={(event) => setLogLineMax(event.target.value)} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FilterDateTimeRange label="Время записи" from={logTimeFrom} to={logTimeTo} onFromChange={setLogTimeFrom} onToChange={setLogTimeTo} />
+              <FilterNumberRange label="Строка" from={logLineMin} to={logLineMax} onFromChange={setLogLineMin} onToChange={setLogLineMax} />
             </div>
-            <Select
-              value={[logEntityFilter]}
-              onUpdate={(value) => setLogEntityFilter(value[0] ?? "all")}
-              options={[
-                { value: "all", content: "Все сущности" },
-                { value: "student", content: "Студент" },
-                { value: "moodle", content: "Строка Moodle" },
-                { value: "camera", content: "Запись камеры" },
-              ]}
-              size="m"
-            />
-            <TextInput
-              placeholder="Поиск в сообщениях"
-              size="l"
-              value={logSearch}
-              onUpdate={setLogSearch}
-              startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />}
-            />
           </div>
         </div>
 

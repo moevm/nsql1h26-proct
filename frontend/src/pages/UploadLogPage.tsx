@@ -15,7 +15,7 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { api, ApiError } from "../shared/api/client";
 import type { AnyRecord } from "../entities/types";
 import { RecordDetailsView } from "../shared/ui/RecordDetailsView";
-import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { FilterDateTimeRange, FilterFormField } from "../shared/ui/FilterField";
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { formatDate, formatDurationMs } from "../shared/lib/format";
 import { isValidIsoDateTime } from "../shared/lib/dateTime";
@@ -350,14 +350,23 @@ export function UploadLogPage() {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <TextInput placeholder="Поиск в сообщениях" size="m" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
-              <Select value={[levelFilter]} onUpdate={(v) => setLevelFilter(v[0])} options={[{ value: "all", content: "Все уровни" }, { value: "info", content: "info" }, { value: "warn", content: "warn" }, { value: "error", content: "error" }]} size="m" />
-              <Select value={[fileFilter]} onUpdate={(v) => setFileFilter(v[0])} options={[{ value: "all", content: "Все файлы" }, ...files.map((f) => ({ value: f, content: f }))]} size="m" />
-              <Select value={[entityFilter]} onUpdate={(v) => setEntityFilter(v[0])} options={[{ value: "all", content: "Все сущности" }, { value: "student", content: "Студент" }, { value: "moodle", content: "Строка Moodle" }, { value: "camera", content: "Запись камеры" }]} size="m" />
-              <div className="grid grid-cols-2 gap-2 xl:col-span-2">
-                <DateTimeIsoInput label="Время от" value={timeFrom} onUpdate={setTimeFrom} />
-                <DateTimeIsoInput label="Время до" value={timeTo} onUpdate={setTimeTo} />
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                <FilterFormField label="Поиск">
+                  <TextInput placeholder="Текст в сообщениях" size="l" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+                </FilterFormField>
+                <FilterFormField label="Уровень">
+                  <Select value={[levelFilter]} onUpdate={(v) => setLevelFilter(v[0])} options={[{ value: "all", content: "Все уровни" }, { value: "info", content: "info" }, { value: "warn", content: "warn" }, { value: "error", content: "error" }]} size="l" width="max" />
+                </FilterFormField>
+                <FilterFormField label="Файл">
+                  <Select value={[fileFilter]} onUpdate={(v) => setFileFilter(v[0])} options={[{ value: "all", content: "Все файлы" }, ...files.map((f) => ({ value: f, content: f }))]} size="l" width="max" />
+                </FilterFormField>
+                <FilterFormField label="Сущность">
+                  <Select value={[entityFilter]} onUpdate={(v) => setEntityFilter(v[0])} options={[{ value: "all", content: "Все сущности" }, { value: "student", content: "Студент" }, { value: "moodle", content: "Строка Moodle" }, { value: "camera", content: "Запись камеры" }]} size="l" width="max" />
+                </FilterFormField>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FilterDateTimeRange label="Время записи" from={timeFrom} to={timeTo} onFromChange={setTimeFrom} onToChange={setTimeTo} />
               </div>
             </div>
             {!timeFiltersValid && (

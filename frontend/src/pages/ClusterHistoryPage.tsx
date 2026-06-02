@@ -5,7 +5,7 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
 import { runStatusLabels } from "../shared/config/ui";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
-import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
 
 type SortField = "id" | "startedAt" | "algorithm" | "status";
 
@@ -116,31 +116,30 @@ export function ClusterHistoryPage() {
           <span className="text-[13px]" style={{ fontWeight: 500 }}>Составной фильтр</span>
           {hasFilters && <button onClick={resetFilters} className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><X className="w-3 h-3" />Сбросить</button>}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <TextInput placeholder="ID запуска" size="l" value={idFilter} onUpdate={setIdFilter} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
-          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
-            <DateTimeIsoInput label="Начало от" value={startedFrom} onUpdate={setStartedFrom} />
-            <DateTimeIsoInput label="Начало до" value={startedTo} onUpdate={setStartedTo} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <FilterFormField label="ID запуска">
+              <TextInput placeholder="Поиск по ID" size="l" value={idFilter} onUpdate={setIdFilter} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+            </FilterFormField>
+            <FilterFormField label="Алгоритм">
+              <Select value={[algoFilter]} onUpdate={(v) => setAlgoFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все алгоритмы" }, { value: "K-Means", content: "K-Means" }, { value: "DBSCAN", content: "DBSCAN" }]} size="l" width="max" />
+            </FilterFormField>
+            <FilterFormField label="Статус">
+              <Select value={[statusFilter]} onUpdate={(v) => setStatusFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все статусы" }, { value: "success", content: "Завершено" }, { value: "running", content: "Выполняется" }, { value: "error", content: "Ошибка" }]} size="l" width="max" />
+            </FilterFormField>
+            <FilterFormField label="Подмножество">
+              <TextInput placeholder="Текст в описании выборки" size="l" value={subsetFilter} onUpdate={setSubsetFilter} />
+            </FilterFormField>
           </div>
-          <div className="grid grid-cols-2 gap-2 xl:col-span-2">
-            <DateTimeIsoInput label="Конец от" value={finishedFrom} onUpdate={setFinishedFrom} />
-            <DateTimeIsoInput label="Конец до" value={finishedTo} onUpdate={setFinishedTo} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FilterDateTimeRange label="Начало запуска" from={startedFrom} to={startedTo} onFromChange={setStartedFrom} onToChange={setStartedTo} />
+            <FilterDateTimeRange label="Окончание запуска" from={finishedFrom} to={finishedTo} onFromChange={setFinishedFrom} onToChange={setFinishedTo} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Длит. от, сек" value={durationMin} onChange={(event) => setDurationMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Длит. до, сек" value={durationMax} onChange={(event) => setDurationMax(event.target.value)} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <FilterNumberRange label="Длительность, сек" from={durationMin} to={durationMax} onFromChange={setDurationMin} onToChange={setDurationMax} />
+            <FilterNumberRange label="Кластеров" from={clustersMin} to={clustersMax} onFromChange={setClustersMin} onToChange={setClustersMax} />
+            <FilterNumberRange label="Аномалий" from={anomaliesMin} to={anomaliesMax} onFromChange={setAnomaliesMin} onToChange={setAnomaliesMax} />
           </div>
-          <Select value={[algoFilter]} onUpdate={(v) => setAlgoFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все алгоритмы" }, { value: "K-Means", content: "K-Means" }, { value: "DBSCAN", content: "DBSCAN" }]} size="m" />
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Кластеров от" value={clustersMin} onChange={(event) => setClustersMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Кластеров до" value={clustersMax} onChange={(event) => setClustersMax(event.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full h-10" type="number" placeholder="Аномалий от" value={anomaliesMin} onChange={(event) => setAnomaliesMin(event.target.value)} />
-            <input className="w-full h-10" type="number" placeholder="Аномалий до" value={anomaliesMax} onChange={(event) => setAnomaliesMax(event.target.value)} />
-          </div>
-          <Select value={[statusFilter]} onUpdate={(v) => setStatusFilter(v[0] ?? "all")} options={[{ value: "all", content: "Все статусы" }, { value: "success", content: "Завершено" }, { value: "running", content: "Выполняется" }, { value: "error", content: "Ошибка" }]} size="m" />
-          <TextInput placeholder="Подмножество" size="l" value={subsetFilter} onUpdate={setSubsetFilter} />
         </div>
       </div>
 
