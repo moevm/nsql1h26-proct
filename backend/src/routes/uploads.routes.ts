@@ -9,7 +9,7 @@ import { getUploadLog } from "../queries/upload.queries.js";
 import type { AuthUser } from "../schema/user.schema.js";
 import { getAuditContext, recordRequestAuditEvent } from "../services/audit.service.js";
 import { getCsvTemplate, getCsvTemplateFileName, importCsv, isCsvImportKind } from "../services/csv-import.service.js";
-import { createDemoImport, processUpload } from "../services/import.service.js";
+import { createDemoImport, getUploadProcessingStatus, processUpload, retryUploadProcessing, stopUploadProcessing } from "../services/import.service.js";
 import { removeUploadStorageDir } from "../services/upload-storage.service.js";
 import { getQuery, serializeDocument } from "../utils/query.js";
 
@@ -123,7 +123,35 @@ uploadsRouter.post(
   asyncHandler(async (req, res) => {
     const user = res.locals.user as AuthUser;
     const result = await processUpload(String(req.params.uploadId), user, getAuditContext(req, user));
-    res.json(result);
+    res.json(serializeDocument(result));
+  }),
+);
+
+uploadsRouter.get(
+  "/process/:uploadId",
+  auth,
+  asyncHandler(async (req, res) => {
+    const result = await getUploadProcessingStatus(String(req.params.uploadId), res.locals.user as AuthUser);
+    res.json(serializeDocument(result));
+  }),
+);
+
+uploadsRouter.post(
+  "/process/:uploadId/stop",
+  auth,
+  asyncHandler(async (req, res) => {
+    const result = await stopUploadProcessing(String(req.params.uploadId), res.locals.user as AuthUser);
+    res.json(serializeDocument(result));
+  }),
+);
+
+uploadsRouter.post(
+  "/process/:uploadId/retry",
+  auth,
+  asyncHandler(async (req, res) => {
+    const user = res.locals.user as AuthUser;
+    const result = await retryUploadProcessing(String(req.params.uploadId), user, getAuditContext(req, user));
+    res.json(serializeDocument(result));
   }),
 );
 

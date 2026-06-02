@@ -8,6 +8,8 @@ export const clusterColors: Record<string, string> = {
 };
 
 export const uploadStatusLabels = {
+  idle: { theme: "normal" as const, text: "Ожидает обработки" },
+  queued: { theme: "info" as const, text: "В очереди" },
   success: { theme: "success" as const, text: "Успешно" },
   warning: { theme: "warning" as const, text: "Предупреждения" },
   error: { theme: "danger" as const, text: "Ошибка" },
@@ -15,6 +17,9 @@ export const uploadStatusLabels = {
   done_with_warnings: { theme: "warning" as const, text: "Завершено с предупреждениями" },
   failed: { theme: "danger" as const, text: "Ошибка" },
   processing: { theme: "info" as const, text: "Обработка" },
+  cancelling: { theme: "warning" as const, text: "Остановка" },
+  cancelled: { theme: "warning" as const, text: "Остановлено" },
+  stale: { theme: "danger" as const, text: "Зависло" },
   pending: { theme: "info" as const, text: "Ожидает" },
 };
 

@@ -1,18 +1,23 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Clock,
   AlertTriangle,
   Filter,
   Search,
   X,
+  CheckCircle2,
+  Loader2,
+  Play,
+  RotateCcw,
+  ScrollText,
+  Square,
 } from "lucide-react";
-import { Label, Select, TextInput } from "@gravity-ui/uikit";
-import { useLatestUpload, useUploadLog } from "../entities/upload/model/hooks";
-import type { ProcessingLogRow } from "../entities/upload/model/types";
-import { useSessionsSummary, useStudentsSummary } from "../entities/summary/model/hooks";
+import { Button, Label, Select, TextInput } from "@gravity-ui/uikit";
+import { useLatestUpload, useProcessingStatus, useRetryProcessing, useStartProcessing, useStopProcessing } from "../entities/upload/model/hooks";
+import type { ProcessingLogRow, ProcessingStageState, ProcessingState, ProcessingStatus } from "../entities/upload/model/types";
 import { useClusteringRuns } from "../entities/clustering/model/hooks";
-import { formatNumber } from "../shared/lib/format";
+import { formatDate, formatNumber } from "../shared/lib/format";
 import { dateFilterValue, matchesDateRange, matchesNumberRange } from "../shared/lib/clientFilters";
 import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 
@@ -28,12 +33,39 @@ const entityLabels: Record<ProcessingLogRow["entityType"], string> = {
   camera: "Запись камеры",
 };
 
+const statusLabels: Record<ProcessingStatus | string, { theme: "normal" | "info" | "success" | "warning" | "danger"; text: string }> = {
+  idle: { theme: "normal", text: "Ожидает обработки" },
+  queued: { theme: "info", text: "В очереди" },
+  processing: { theme: "info", text: "Обработка" },
+  cancelling: { theme: "warning", text: "Остановка" },
+  cancelled: { theme: "warning", text: "Остановлено" },
+  done: { theme: "success", text: "Завершено" },
+  done_with_warnings: { theme: "warning", text: "Завершено с предупреждениями" },
+  failed: { theme: "danger", text: "Ошибка" },
+  stale: { theme: "danger", text: "Зависло" },
+};
+
+const activeStatuses = new Set(["queued", "processing", "cancelling"]);
+
+function stageLabel(stage: ProcessingStageState) {
+  if (stage.status === "done") return "Готово";
+  if (stage.status === "running") return "Выполняется";
+  if (stage.status === "error") return "Ошибка";
+  if (stage.status === "cancelled") return "Остановлено";
+  return "Ожидает";
+}
+
 export function ProcessingPage() {
   const navigate = useNavigate();
-  const { upload, batch, loading } = useLatestUpload();
-  const { logEntries, loading: logLoading } = useUploadLog(String(upload?._id ?? ""));
-  const sessions = useSessionsSummary();
-  const students = useStudentsSummary();
+  const [searchParams] = useSearchParams();
+  const { upload: latestUpload, batch, loading: latestLoading } = useLatestUpload();
+  const selectedUploadId = searchParams.get("uploadId") ?? batch?.id ?? String(latestUpload?._id ?? "");
+  const processingStatus = useProcessingStatus(selectedUploadId || undefined);
+  const startProcessing = useStartProcessing();
+  const stopProcessing = useStopProcessing();
+  const retryProcessing = useRetryProcessing();
+  const upload = processingStatus.upload ?? latestUpload;
+  const logEntries = processingStatus.logEntries;
   const { runs } = useClusteringRuns(1);
   const latestRun = runs[0];
   const [logTimeFrom, setLogTimeFrom] = useState("");
@@ -45,20 +77,32 @@ export function ProcessingPage() {
   const [logEntityFilter, setLogEntityFilter] = useState("all");
   const [logSearch, setLogSearch] = useState("");
 
-  const summary = (upload?.summary ?? {}) as { errorCount?: number };
-  const warningCount = Number(upload?.errorCount ?? summary.errorCount ?? (upload?.unresolvedStudents as unknown[] | undefined)?.length ?? 0);
+  const processingState = upload?.processingState as ProcessingState | undefined;
+  const processingStateStatus = String(processingState?.status ?? "idle");
   const uploadStatus = String(upload?.status ?? "");
-  const statusTheme = uploadStatus === "failed" || uploadStatus === "error" ? "danger" : uploadStatus.includes("warning") ? "warning" : uploadStatus ? "success" : "normal";
-  const statusText =
-    uploadStatus === "done" ? "Завершено" :
-      uploadStatus === "done_with_warnings" ? "Завершено с предупреждениями" :
-        uploadStatus === "failed" || uploadStatus === "error" ? "Ошибка" :
-          uploadStatus || "Загрузок пока нет";
+  const statusConfig = statusLabels[processingStateStatus] ?? statusLabels[String(upload?.status ?? "idle")] ?? { theme: "normal" as const, text: String(upload?.status ?? "Нет данных") };
+  const canStop = processingStateStatus === "queued" || processingStateStatus === "processing";
+  const canRetry = ["cancelled", "failed", "stale", "done", "done_with_warnings"].includes(processingStateStatus) || (processingStateStatus === "idle" && ["done", "done_with_warnings", "failed"].includes(uploadStatus));
+  const canStart = Boolean(selectedUploadId && processingStateStatus === "idle" && !canRetry);
+  const isActionLoading = startProcessing.loading || stopProcessing.loading || retryProcessing.loading;
+  const actionError = startProcessing.error || stopProcessing.error || retryProcessing.error || processingStatus.error;
+  const summary = (upload?.summary ?? {}) as { errorCount?: number };
+  const uploadFiles = (upload?.files ?? {}) as Record<string, { rowsCount?: number }>;
+  const fileRows = Object.values(uploadFiles).map((file) => Number(file.rowsCount ?? 0));
+  const rowsProcessed = fileRows.length ? fileRows.reduce((sum, rows) => sum + rows, 0) : Number(upload?.totalRows ?? 0);
+  const sessionsBuilt = Number(uploadFiles.sessions?.rowsCount ?? 0);
+  const unresolvedCount = processingStatus.unresolvedStudents.length || Number((upload?.unresolvedStudents as unknown[] | undefined)?.length ?? 0);
+  const studentsMatched = Math.max(0, Number(uploadFiles.students?.rowsCount ?? upload?.matchedStudents ?? 0) - unresolvedCount);
+  const warningCount = Math.max(
+    logEntries.filter((entry) => entry.level === "warn" || entry.level === "error").length,
+    unresolvedCount,
+    Number(upload?.errorCount ?? summary.errorCount ?? 0),
+  );
 
   const kpis = [
-    { label: "Строк обработано", value: batch?.rows ?? "0" },
-    { label: "Сессий построено", value: formatNumber(sessions.total) },
-    { label: "Студентов сопоставлено", value: formatNumber(students.total) },
+    { label: "Строк обработано", value: formatNumber(rowsProcessed) },
+    { label: "Сессий построено", value: formatNumber(sessionsBuilt) },
+    { label: "Студентов сопоставлено", value: formatNumber(studentsMatched) },
     { label: "Предупреждения", value: formatNumber(warningCount) },
   ];
   const logFiles = [...new Set(logEntries.map((entry) => entry.file))];
@@ -92,34 +136,136 @@ export function ProcessingPage() {
     if (logSearch && !entry.message.toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
-  const uploadId = String(upload?._id ?? "");
+  const uploadId = selectedUploadId || String(upload?._id ?? "");
   const openLogEntry = (entry: ProcessingLogRow) => {
     if (!uploadId) return;
     navigate(`/processing/log/${uploadId}/${entry.id - 1}`);
   };
+  const refreshAfterAction = () => {
+    processingStatus.refetch();
+  };
+  const handleStart = async () => {
+    if (!selectedUploadId) return;
+    try {
+      await startProcessing.run(selectedUploadId);
+      refreshAfterAction();
+    } catch {
+      // Inline error is rendered in the status card.
+    }
+  };
+  const handleStop = async () => {
+    if (!selectedUploadId) return;
+    if (!window.confirm("Остановить обработку? Уже загруженные исходные файлы сохранятся, обработку можно будет перезапустить.")) return;
+    try {
+      await stopProcessing.run(selectedUploadId);
+      refreshAfterAction();
+    } catch {
+      // Inline error is rendered in the status card.
+    }
+  };
+  const handleRetry = async () => {
+    if (!selectedUploadId) return;
+    try {
+      await retryProcessing.run(selectedUploadId);
+      refreshAfterAction();
+    } catch {
+      // Inline error is rendered in the status card.
+    }
+  };
+  const lastHeartbeatText = processingState?.lastHeartbeatAt ? formatDate(processingState.lastHeartbeatAt) : "Нет данных";
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px]" style={{ fontWeight: 600 }}>Обработка данных</h1>
-        <p className="text-muted-foreground text-[14px] mt-1">
-          Построение сессий и вычисление поведенческих метрик
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-[22px]" style={{ fontWeight: 600 }}>Обработка данных</h1>
+          <p className="text-muted-foreground text-[14px] mt-1">
+            Построение сессий и вычисление поведенческих метрик
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {uploadId && (
+            <Button view="outlined" className="text-[13px] h-9" onClick={() => navigate(`/uploads/${uploadId}/log`)}>
+              <span className="flex items-center gap-1.5">
+                <ScrollText className="w-4 h-4" />
+                Открыть журнал
+              </span>
+            </Button>
+          )}
+          {(processingStateStatus === "done" || processingStateStatus === "done_with_warnings") && (
+            <Button view="action" className="text-[13px] h-9" onClick={() => navigate("/clustering")}>
+              Кластеризация
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="bg-card rounded-xl border border-border p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[12px] text-muted-foreground mb-1">Последняя загрузка из БД</p>
+            <p className="text-[12px] text-muted-foreground mb-1">Пачка обработки</p>
             <p className="text-[15px]" style={{ fontWeight: 500 }}>
-              {upload?._id ? String(upload._id) : "Данные ещё не загружались"}
+              {uploadId || "Данные ещё не загружались"}
             </p>
           </div>
-          <Label theme={statusTheme}>{statusText}</Label>
+          <Label theme={statusConfig.theme}>{statusConfig.text}</Label>
         </div>
-        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-          <Clock className="w-3.5 h-3.5" />
-          {latestRun ? `Последний запуск кластеризации: ${latestRun.id}` : "Запусков кластеризации пока нет"}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[13px]">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Clock className="w-3.5 h-3.5" />
+            Последнее обновление: {lastHeartbeatText}
+          </div>
+          <div className="text-muted-foreground">Попытка: <span className="text-foreground">{processingState?.attempt ?? 0}</span></div>
+          <div className="text-muted-foreground">{latestRun ? `Последний запуск кластеризации: ${latestRun.id}` : "Запусков кластеризации пока нет"}</div>
+        </div>
+        {processingStateStatus === "stale" && (
+          <div className="rounded-lg bg-destructive/5 border border-destructive/20 px-3 py-2 text-[13px] text-destructive">
+            Задача не обновлялась дольше ожидаемого времени. Можно остановить ее и запустить снова.
+          </div>
+        )}
+        {processingState?.errorMessage && (
+          <div className="rounded-lg bg-destructive/5 border border-destructive/20 px-3 py-2 text-[13px] text-destructive">
+            {processingState.errorMessage}
+          </div>
+        )}
+        {actionError && (
+          <div className="rounded-lg bg-destructive/5 border border-destructive/20 px-3 py-2 text-[13px] text-destructive">
+            {actionError}
+          </div>
+        )}
+        <div>
+          <div className="flex items-center justify-between text-[12px] text-muted-foreground mb-2">
+            <span>{processingState?.currentStage ?? "Этап не выбран"}</span>
+            <span>{Math.round(Number(processingState?.progress ?? 0))}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, Math.max(0, Number(processingState?.progress ?? 0)))}%` }} />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {canStart && (
+            <Button view="action" className="text-[13px] h-9" loading={startProcessing.loading} disabled={isActionLoading} onClick={() => void handleStart()}>
+              <span className="flex items-center gap-1.5"><Play className="w-4 h-4" />Запустить обработку</span>
+            </Button>
+          )}
+          {canStop && (
+            <Button view="outlined" className="text-[13px] h-9" loading={stopProcessing.loading} disabled={isActionLoading} onClick={() => void handleStop()}>
+              <span className="flex items-center gap-1.5"><Square className="w-4 h-4" />Остановить</span>
+            </Button>
+          )}
+          {processingStateStatus === "cancelling" && (
+            <Button view="outlined" className="text-[13px] h-9" disabled loading>
+              Останавливаем обработку...
+            </Button>
+          )}
+          {canRetry && (
+            <Button view="action" className="text-[13px] h-9" loading={retryProcessing.loading} disabled={isActionLoading} onClick={() => void handleRetry()}>
+              <span className="flex items-center gap-1.5"><RotateCcw className="w-4 h-4" />Перезапустить</span>
+            </Button>
+          )}
+          <Button view="outlined" className="text-[13px] h-9" onClick={() => navigate("/upload")}>
+            Новая загрузка
+          </Button>
         </div>
       </div>
 
@@ -131,10 +277,6 @@ export function ProcessingPage() {
           </div>
         ))}
       </div>
-      <div className="bg-card rounded-xl border border-border p-4">
-        <div className="text-[12px] text-muted-foreground mb-1">ID последней кластеризации</div>
-        <div className="text-[13px] font-mono break-all" style={{ fontWeight: 600 }}>{latestRun?.id ?? "Запусков пока нет"}</div>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-card rounded-xl border border-border p-5">
@@ -142,21 +284,46 @@ export function ProcessingPage() {
           <div className="space-y-3 text-[13px]">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Пачка загрузки</span>
-              <span className="font-mono text-[12px] break-all text-right">{batch?.id ?? "Нет данных"}</span>
+              <span className="font-mono text-[12px] break-all text-right">{uploadId || "Нет данных"}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Файлов в последней пачке</span>
-              <span style={{ fontWeight: 500 }}>{batch?.files ?? 0}</span>
+              <span style={{ fontWeight: 500 }}>{Number(upload?.filesCount ?? batch?.files ?? 0)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Типы файлов</span>
-              <span className="text-right">{batch?.fileTypes ?? "Нет данных"}</span>
+              <span className="text-right">{Object.keys((upload?.files ?? {}) as Record<string, unknown>).join(", ") || batch?.fileTypes || "Нет данных"}</span>
             </div>
             {warningCount > 0 && (
               <div className="flex items-center gap-2 rounded-lg bg-warning/5 px-3 py-2 text-warning">
                 <AlertTriangle className="w-4 h-4" />
                 <span>В последней загрузке есть предупреждения: {formatNumber(warningCount)}</span>
               </div>
+            )}
+          </div>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-5">
+          <h3 className="text-[15px] mb-4" style={{ fontWeight: 600 }}>Этапы обработки</h3>
+          <div className="space-y-3">
+            {(processingState?.stages ?? []).length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">Этапы появятся после запуска обработки.</p>
+            ) : (
+              processingState?.stages.map((stage) => (
+                <div key={stage.key} className="flex items-start gap-3">
+                  <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center ${
+                    stage.status === "done" ? "bg-success/15 text-success" :
+                      stage.status === "running" ? "bg-primary/15 text-primary" :
+                        stage.status === "error" ? "bg-destructive/15 text-destructive" :
+                          stage.status === "cancelled" ? "bg-warning/15 text-warning" : "bg-muted text-muted-foreground"
+                  }`}>
+                    {stage.status === "done" ? <CheckCircle2 className="w-3.5 h-3.5" /> : stage.status === "running" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="text-[10px]">•</span>}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[13px]" style={{ fontWeight: 500 }}>{stage.label}</div>
+                    <div className="text-[12px] text-muted-foreground">{stageLabel(stage)}</div>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -244,7 +411,7 @@ export function ProcessingPage() {
               </tr>
             </thead>
             <tbody>
-              {logLoading ? (
+              {processingStatus.loading || latestLoading ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-muted-foreground">Загрузка журнала...</td>
                 </tr>

@@ -9,9 +9,12 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Cpu,
+  RotateCcw,
+  Square,
 } from "lucide-react";
 import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
-import { useUploads } from "../entities/upload/model/hooks";
+import { useRetryProcessing, useStopProcessing, useUploads } from "../entities/upload/model/hooks";
 import { uploadStatusLabels } from "../shared/config/ui";
 import { api } from "../shared/api/client";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
@@ -23,6 +26,8 @@ type SortDir = "asc" | "desc";
 export function UploadHistoryPage() {
   const navigate = useNavigate();
   const { groupedBatches: batches, refetch } = useUploads(200);
+  const stopProcessing = useStopProcessing();
+  const retryProcessing = useRetryProcessing();
   const [idFilter, setIdFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -110,6 +115,26 @@ export function UploadHistoryPage() {
     refetch();
   };
 
+  const stopBatchProcessing = async (id: string) => {
+    if (!window.confirm("Остановить обработку? Исходные файлы сохранятся, обработку можно будет перезапустить.")) return;
+    try {
+      await stopProcessing.run(id);
+      refetch();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Не удалось остановить обработку");
+    }
+  };
+
+  const retryBatchProcessing = async (id: string) => {
+    try {
+      await retryProcessing.run(id);
+      refetch();
+      navigate(`/processing?uploadId=${id}`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Не удалось перезапустить обработку");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -161,6 +186,9 @@ export function UploadHistoryPage() {
               { value: "success", content: "Успешно" },
               { value: "warning", content: "Предупреждения" },
               { value: "error", content: "Ошибка" },
+              { value: "processing", content: "Обработка" },
+              { value: "cancelled", content: "Остановлено" },
+              { value: "stale", content: "Зависло" },
             ]}
             size="l"
           />
@@ -253,8 +281,8 @@ export function UploadHistoryPage() {
                     <td className="py-3 pr-4 text-center">{b.files}</td>
                     <td className="py-3 pr-4 text-muted-foreground max-w-[260px] truncate">{b.fileTypes}</td>
                     <td className="py-3 pr-4">
-                      <Label theme={uploadStatusLabels[b.status].theme}>
-                        {uploadStatusLabels[b.status].text}
+                      <Label theme={(uploadStatusLabels[b.status as keyof typeof uploadStatusLabels] ?? uploadStatusLabels.success).theme}>
+                        {(uploadStatusLabels[b.status as keyof typeof uploadStatusLabels] ?? uploadStatusLabels.success).text}
                       </Label>
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">{b.rows}</td>
@@ -275,6 +303,54 @@ export function UploadHistoryPage() {
                             Журнал
                           </span>
                         </Button>
+                        <Button
+                          view="outlined"
+                          size="s"
+                          className="text-[12px] h-7"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/processing?uploadId=${b.id}`);
+                          }}
+                        >
+                          <span className="flex items-center gap-1">
+                            <Cpu className="w-3 h-3" />
+                            Обработка
+                          </span>
+                        </Button>
+                        {(b.status === "queued" || b.status === "processing" || b.status === "cancelling") && (
+                          <Button
+                            view="outlined"
+                            size="s"
+                            className="text-[12px] h-7"
+                            loading={stopProcessing.loading}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void stopBatchProcessing(b.id);
+                            }}
+                          >
+                            <span className="flex items-center gap-1">
+                              <Square className="w-3 h-3" />
+                              Остановить
+                            </span>
+                          </Button>
+                        )}
+                        {(b.status === "failed" || b.status === "cancelled" || b.status === "stale") && (
+                          <Button
+                            view="outlined"
+                            size="s"
+                            className="text-[12px] h-7"
+                            loading={retryProcessing.loading}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void retryBatchProcessing(b.id);
+                            }}
+                          >
+                            <span className="flex items-center gap-1">
+                              <RotateCcw className="w-3 h-3" />
+                              Перезапустить
+                            </span>
+                          </Button>
+                        )}
                         <Button
                           view="outlined"
                           size="s"
