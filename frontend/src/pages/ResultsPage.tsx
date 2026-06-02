@@ -1,6 +1,6 @@
 import { type MouseEvent, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Search, Filter, RefreshCw, Download, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, Trash2 } from "lucide-react";
+import { Search, Filter, RefreshCw, Download, ZoomIn, ZoomOut, AlertTriangle, Trash2 } from "lucide-react";
 import { Button, TextInput, Select, Switch, Label } from "@gravity-ui/uikit";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { SessionDrawer } from "../widgets/session-drawer/SessionDrawer";
@@ -9,7 +9,11 @@ import type { AnyRecord } from "../entities/types";
 import { useClusteringResult, useClusteringRuns } from "../entities/clustering/model/hooks";
 import type { ResultSessionRow } from "../entities/clustering/model/types";
 import { clusterColors } from "../shared/config/ui";
+import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
 import { getNested } from "../shared/lib/object";
+import { useClientPagination } from "../shared/lib/useClientPagination";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -45,6 +49,7 @@ function getClusterColor(cluster: string) {
 
 type ChartPoint = { x: number; y: number };
 type ChartDomain = { x: [number, number]; y: [number, number] };
+type ClusterTableRow = { id: string; size: number; centroid: string; anomalyRate: number };
 
 function pointFromMouse(event: MouseEvent<HTMLDivElement>): ChartPoint {
   const rect = event.currentTarget.getBoundingClientRect();
@@ -81,7 +86,16 @@ export function ResultsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [clusterFilter, setClusterFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
+  const [sessionDateFrom, setSessionDateFrom] = useState("");
+  const [sessionDateTo, setSessionDateTo] = useState("");
+  const [distanceMin, setDistanceMin] = useState("");
+  const [distanceMax, setDistanceMax] = useState("");
+  const [clusterIdFilter, setClusterIdFilter] = useState("");
+  const [clusterSizeMin, setClusterSizeMin] = useState("");
+  const [clusterSizeMax, setClusterSizeMax] = useState("");
+  const [clusterCentroidFilter, setClusterCentroidFilter] = useState("");
+  const [clusterAnomalyMin, setClusterAnomalyMin] = useState("");
+  const [clusterAnomalyMax, setClusterAnomalyMax] = useState("");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [manualDomain, setManualDomain] = useState<ChartDomain | null>(null);
   const [dragStart, setDragStart] = useState<ChartPoint | null>(null);
@@ -101,6 +115,7 @@ export function ResultsPage() {
       id: String(assignment.sessionId ?? index),
       student: String(student?.fullName ?? session?.studentId ?? assignment.sessionId ?? "—"),
       date: session?.startTime ? new Date(String(session.startTime)).toLocaleString("ru-RU") : "—",
+      dateRaw: String(session?.startTime ?? ""),
       cluster: clusterLabel(assignment.clusterId),
       anomaly: Boolean(assignment.isAnomaly),
       distanceToCentroid: Number.isFinite(distanceToCentroid) ? distanceToCentroid : undefined,
@@ -108,17 +123,32 @@ export function ResultsPage() {
     };
   });
 
+  const sessionDateFromTime = dateFilterValue(sessionDateFrom);
+  const sessionDateToTime = dateFilterValue(sessionDateTo);
   const filteredSessions = sessionRows.filter((s) => {
     if (searchQuery && !s.student.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (clusterFilter !== "all" && s.cluster !== clusterFilter) return false;
     if (statusFilter === "anomaly" && !s.anomaly) return false;
     if (statusFilter === "normal" && s.anomaly) return false;
+    if (!matchesDateRange(String(s.dateRaw ?? ""), sessionDateFromTime, sessionDateToTime)) return false;
+    if (!matchesNumberRange(Number(s.distanceToCentroid ?? 0), distanceMin, distanceMax)) return false;
     return true;
   });
-  const pageSize = 15;
-  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const paginatedSessions = filteredSessions.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const sessionPagination = useClientPagination(filteredSessions, 15, "table-page-size");
+  const clusterRows: ClusterTableRow[] = clusters.map((cluster, index) => ({
+    id: clusterLabel(cluster.clusterId ?? index),
+    size: Number(cluster.size ?? 0),
+    centroid: Array.isArray(cluster.centroid) ? cluster.centroid.slice(0, 3).join(", ") : "—",
+    anomalyRate: Number(Number(cluster.anomalyRate ?? 0) * 100),
+  }));
+  const filteredClusters = clusterRows.filter((cluster) => {
+    if (!matchesText(cluster.id, clusterIdFilter)) return false;
+    if (!matchesNumberRange(cluster.size, clusterSizeMin, clusterSizeMax)) return false;
+    if (!matchesText(cluster.centroid, clusterCentroidFilter)) return false;
+    if (!matchesNumberRange(cluster.anomalyRate, clusterAnomalyMin, clusterAnomalyMax)) return false;
+    return true;
+  });
+  const clusterPagination = useClientPagination(filteredClusters, 10, "table-page-size");
 
   const scatterData = assignments.flatMap((assignment, index) => {
     const row = sessionRows[index] ?? sessionRows[0];
@@ -250,16 +280,20 @@ export function ResultsPage() {
           {activeTab === "sessions" ? (
             <>
               <div className="flex flex-wrap gap-2 mb-4">
-                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="l" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); setPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
-                <Select value={[clusterFilter]} onUpdate={(vals) => { setClusterFilter(vals[0]); setPage(1); }} options={dynamicClusterOptions} placeholder="Кластер" size="s" />
-                <Select value={[statusFilter]} onUpdate={(vals) => { setStatusFilter(vals[0]); setPage(1); }} options={[{ value: "all", content: "Все" }, { value: "anomaly", content: "Аномалия" }, { value: "normal", content: "Норма" }]} placeholder="Статус" size="s" />
+                <div className="relative flex-1 min-w-[140px]"><TextInput placeholder="Поиск по студенту" size="l" value={searchQuery} onUpdate={(v) => { setSearchQuery(v); sessionPagination.setPage(1); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} /></div>
+                <Select value={[clusterFilter]} onUpdate={(vals) => { setClusterFilter(vals[0]); sessionPagination.setPage(1); }} options={dynamicClusterOptions} placeholder="Кластер" size="s" />
+                <Select value={[statusFilter]} onUpdate={(vals) => { setStatusFilter(vals[0]); sessionPagination.setPage(1); }} options={[{ value: "all", content: "Все" }, { value: "anomaly", content: "Аномалия" }, { value: "normal", content: "Норма" }]} placeholder="Статус" size="s" />
                 <Button view="outlined" size="s" className="h-8 w-8 p-0"><Filter className="w-3.5 h-3.5" /></Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <FilterDateTimeRange label="Дата" from={sessionDateFrom} to={sessionDateTo} onFromChange={(value) => { setSessionDateFrom(value); sessionPagination.setPage(1); }} onToChange={(value) => { setSessionDateTo(value); sessionPagination.setPage(1); }} />
+                <FilterNumberRange label="Расстояние" from={distanceMin} to={distanceMax} onFromChange={(value) => { setDistanceMin(value); sessionPagination.setPage(1); }} onToChange={(value) => { setDistanceMax(value); sessionPagination.setPage(1); }} />
               </div>
               <div className="max-h-[430px] overflow-auto pr-1">
                 <table className="w-full text-[12px]">
                   <thead className="sticky top-0 bg-card z-10"><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Студент</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Дата</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Кластер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Аномалия</th><th className="pb-2" style={{ fontWeight: 500 }}>Расст.</th></tr></thead>
                   <tbody>
-                    {paginatedSessions.map((s) => (
+                    {sessionPagination.paginatedItems.map((s) => (
                       <tr key={s.id} onClick={() => handleRowClick(s)} className={`border-b border-border/50 cursor-pointer transition-colors ${selectedSession?.id === s.id ? "bg-primary/5" : "hover:bg-muted/50"}`}>
                         <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{s.student}</td>
                         <td className="py-2.5 pr-3 text-muted-foreground font-mono text-[11px]">{s.date}</td>
@@ -271,35 +305,35 @@ export function ResultsPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between mt-4 text-[12px] text-muted-foreground">
-                <span>Показано {paginatedSessions.length} из {filteredSessions.length}</span>
-                <div className="flex items-center gap-1">
-                  <Button view="flat" size="s" className="h-7 w-7 p-0" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button>
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => index + 1).map((p) => <Button key={p} view={safePage === p ? "action" : "flat"} size="s" className="h-7 w-7 p-0 text-[12px]" onClick={() => setPage(p)}>{p}</Button>)}
-                  {totalPages > 5 && <span>...</span>}
-                  <Button view="flat" size="s" className="h-7 w-7 p-0" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button>
-                </div>
-              </div>
+              <TablePagination total={sessionPagination.total} page={sessionPagination.page} limit={sessionPagination.limit} onPageChange={sessionPagination.setPage} onLimitChange={sessionPagination.setLimit} className="mt-4" />
             </>
           ) : (
             <div className="max-h-[430px] overflow-auto pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <FilterFormField label="Кластер">
+                  <TextInput placeholder="Например: C1" size="m" value={clusterIdFilter} onUpdate={(value) => { setClusterIdFilter(value); clusterPagination.setPage(1); }} />
+                </FilterFormField>
+                <FilterFormField label="Центроид">
+                  <TextInput placeholder="Фрагмент значения" size="m" value={clusterCentroidFilter} onUpdate={(value) => { setClusterCentroidFilter(value); clusterPagination.setPage(1); }} />
+                </FilterFormField>
+                <FilterNumberRange label="Размер" from={clusterSizeMin} to={clusterSizeMax} onFromChange={(value) => { setClusterSizeMin(value); clusterPagination.setPage(1); }} onToChange={(value) => { setClusterSizeMax(value); clusterPagination.setPage(1); }} />
+                <FilterNumberRange label="Аномалии, %" from={clusterAnomalyMin} to={clusterAnomalyMax} onFromChange={(value) => { setClusterAnomalyMin(value); clusterPagination.setPage(1); }} onToChange={(value) => { setClusterAnomalyMax(value); clusterPagination.setPage(1); }} />
+              </div>
               <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-card z-10"><tr className="border-b border-border text-muted-foreground text-left"><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Кластер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Размер</th><th className="pb-2 pr-3" style={{ fontWeight: 500 }}>Центроид</th><th className="pb-2" style={{ fontWeight: 500 }}>Аномалии</th></tr></thead>
                 <tbody>
-                  {clusters.map((c, index) => {
-                    const id = clusterLabel(c.clusterId ?? index);
-                    return (
-                      <tr key={id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                        <td className="py-2.5 pr-3"><span className="px-2 py-0.5 rounded text-[11px] text-white" style={{ fontWeight: 500, backgroundColor: getClusterColor(id) }}>{id}</span></td>
-                        <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{String(c.size ?? 0)}</td>
-                        <td className="py-2.5 pr-3 text-muted-foreground">{Array.isArray(c.centroid) ? c.centroid.slice(0, 3).join(", ") : "—"}</td>
-                        <td className="py-2.5"><span className={Number(c.anomalyRate ?? 0) > 0.05 ? "text-destructive" : "text-success"} style={{ fontWeight: 500 }}>{Number(Number(c.anomalyRate ?? 0) * 100).toFixed(1)}%</span></td>
-                      </tr>
-                    );
-                  })}
+                  {clusterPagination.paginatedItems.map((c) => (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
+                      <td className="py-2.5 pr-3"><span className="px-2 py-0.5 rounded text-[11px] text-white" style={{ fontWeight: 500, backgroundColor: getClusterColor(c.id) }}>{c.id}</span></td>
+                      <td className="py-2.5 pr-3" style={{ fontWeight: 500 }}>{String(c.size)}</td>
+                      <td className="py-2.5 pr-3 text-muted-foreground">{c.centroid}</td>
+                      <td className="py-2.5"><span className={c.anomalyRate > 5 ? "text-destructive" : "text-success"} style={{ fontWeight: 500 }}>{c.anomalyRate.toFixed(1)}%</span></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               <p className="text-[11px] text-muted-foreground mt-3">Показаны средние значения метрик по каждому кластеру. Всего сессий: {assignments.length}.</p>
+              <TablePagination total={clusterPagination.total} page={clusterPagination.page} limit={clusterPagination.limit} onPageChange={clusterPagination.setPage} onLimitChange={clusterPagination.setLimit} className="mt-4" />
             </div>
           )}
         </div>

@@ -92,8 +92,8 @@ export async function validateBackup(payload: unknown, actor: AuthUser, options:
   return validation;
 }
 
-export async function getBackupHistory(limit?: number) {
-  return listBackupHistory(limit);
+export async function getBackupHistory(page?: number, limit?: number, filters = {}) {
+  return listBackupHistory(page, limit, filters);
 }
 
 export async function exportBackupHistoryRecord(id: string) {

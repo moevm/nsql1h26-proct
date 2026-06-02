@@ -1,9 +1,12 @@
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
-import { HardDrive, Download, Upload, CheckCircle2, AlertTriangle, Clock, XCircle } from "lucide-react";
-import { Button, Label } from "@gravity-ui/uikit";
+import { HardDrive, Download, Upload, CheckCircle2, AlertTriangle, Clock, XCircle, Filter, X } from "lucide-react";
+import { Button, Label, Select, TextInput } from "@gravity-ui/uikit";
 import { api } from "../shared/api/client";
 import { useBackupExport } from "../features/backup-export/model/useBackupExport";
 import { formatDate, formatNumber } from "../shared/lib/format";
+import { readStoredPageSize, writeStoredPageSize } from "../shared/lib/paginationStorage";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 type BackupOperation = "export" | "import" | "validate";
 type BackupStatus = "success" | "failed";
@@ -30,6 +33,13 @@ interface BackupValidationResult {
   warnings: string[];
 }
 
+interface BackupHistoryResponse {
+  items: BackupHistoryRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 const operationLabels: Record<BackupOperation, string> = {
   export: "Экспорт",
   import: "Импорт",
@@ -48,8 +58,20 @@ export function BackupPage() {
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [history, setHistory] = useState<BackupHistoryRecord[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit, setHistoryLimit] = useState(() => readStoredPageSize("table-page-size", 10));
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
+  const [fileFilter, setFileFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sizeMin, setSizeMin] = useState("");
+  const [sizeMax, setSizeMax] = useState("");
+  const [authorFilter, setAuthorFilter] = useState("");
+  const [operationFilter, setOperationFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [detailsFilter, setDetailsFilter] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { exporting, exportBackup, exportHistoryBackup } = useBackupExport();
 
@@ -57,15 +79,32 @@ export function BackupPage() {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const data = await api<{ items: BackupHistoryRecord[] }>("/backup/history");
+      const query = new URLSearchParams({
+        page: String(historyPage),
+        limit: String(historyLimit),
+      });
+      if (fileFilter) query.set("fileName", fileFilter);
+      if (dateFrom) query.set("createdAtFrom", dateFrom);
+      if (dateTo) query.set("createdAtTo", dateTo);
+      if (sizeMin) query.set("sizeMin", sizeMin);
+      if (sizeMax) query.set("sizeMax", sizeMax);
+      if (authorFilter) query.set("actorName", authorFilter);
+      if (operationFilter !== "all") query.set("operation", operationFilter);
+      if (statusFilter !== "all") query.set("status", statusFilter);
+      if (detailsFilter) query.set("details", detailsFilter);
+      const data = await api<BackupHistoryResponse>(`/backup/history?${query.toString()}`);
       setHistory(data.items);
+      setHistoryTotal(data.total);
+      setHistoryPage(data.page);
+      setHistoryLimit(data.limit);
     } catch (error) {
       setHistory([]);
+      setHistoryTotal(0);
       setHistoryError(error instanceof Error ? error.message : "Не удалось загрузить историю бэкапов");
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [authorFilter, dateFrom, dateTo, detailsFilter, fileFilter, historyLimit, historyPage, operationFilter, sizeMax, sizeMin, statusFilter]);
 
   useEffect(() => {
     void loadHistory();
@@ -113,6 +152,28 @@ export function BackupPage() {
     } finally {
       setImporting(false);
     }
+  };
+  const hasHistoryFilters = fileFilter || dateFrom || dateTo || sizeMin || sizeMax || authorFilter || operationFilter !== "all" || statusFilter !== "all" || detailsFilter;
+  const resetHistoryFilters = () => {
+    setFileFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setSizeMin("");
+    setSizeMax("");
+    setAuthorFilter("");
+    setOperationFilter("all");
+    setStatusFilter("all");
+    setDetailsFilter("");
+    setHistoryPage(1);
+  };
+  const updateHistoryLimit = (limit: number) => {
+    writeStoredPageSize("table-page-size", limit);
+    setHistoryLimit(limit);
+    setHistoryPage(1);
+  };
+  const updateHistoryFilter = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    setHistoryPage(1);
   };
 
   return (
@@ -178,6 +239,68 @@ export function BackupPage() {
             Обновить
           </Button>
         </div>
+        <div className="bg-card rounded-xl border border-border p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <span className="text-[13px]" style={{ fontWeight: 500 }}>Фильтр истории бэкапов</span>
+            {hasHistoryFilters && (
+              <button onClick={resetHistoryFilters} className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+                Сбросить
+              </button>
+            )}
+          </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <FilterFormField label="Файл">
+                <TextInput placeholder="Имя файла" size="l" value={fileFilter} onUpdate={updateHistoryFilter(setFileFilter)} />
+              </FilterFormField>
+              <FilterFormField label="Автор">
+                <TextInput placeholder="Автор операции" size="l" value={authorFilter} onUpdate={updateHistoryFilter(setAuthorFilter)} />
+              </FilterFormField>
+              <FilterFormField label="Операция">
+                <Select
+                  value={[operationFilter]}
+                  onUpdate={(value) => {
+                    setOperationFilter(value[0] ?? "all");
+                    setHistoryPage(1);
+                  }}
+                  options={[
+                    { value: "all", content: "Все операции" },
+                    { value: "export", content: "Экспорт" },
+                    { value: "import", content: "Импорт" },
+                    { value: "validate", content: "Проверка" },
+                  ]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
+              <FilterFormField label="Статус">
+                <Select
+                  value={[statusFilter]}
+                  onUpdate={(value) => {
+                    setStatusFilter(value[0] ?? "all");
+                    setHistoryPage(1);
+                  }}
+                  options={[
+                    { value: "all", content: "Все статусы" },
+                    { value: "success", content: "Готово" },
+                    { value: "failed", content: "Ошибка" },
+                  ]}
+                  size="l"
+                  width="max"
+                />
+              </FilterFormField>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <FilterDateTimeRange label="Дата" from={dateFrom} to={dateTo} onFromChange={updateHistoryFilter(setDateFrom)} onToChange={updateHistoryFilter(setDateTo)} />
+              <FilterNumberRange label="Размер, байт" from={sizeMin} to={sizeMax} onFromChange={updateHistoryFilter(setSizeMin)} onToChange={updateHistoryFilter(setSizeMax)} />
+              <FilterFormField label="Детали">
+                <TextInput placeholder="Ошибка или количество коллекций" size="l" value={detailsFilter} onUpdate={updateHistoryFilter(setDetailsFilter)} />
+              </FilterFormField>
+            </div>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -197,8 +320,10 @@ export function BackupPage() {
                 <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">Загрузка истории...</td></tr>
               ) : historyError ? (
                 <tr><td colSpan={8} className="py-10 text-center text-destructive">{historyError}</td></tr>
-              ) : history.length === 0 ? (
+              ) : history.length === 0 && !hasHistoryFilters ? (
                 <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">История бэкапов пока пуста</td></tr>
+              ) : history.length === 0 ? (
+                <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">По заданным условиям бэкапов не найдено</td></tr>
               ) : (
                 history.map((item) => (
                   <tr key={item._id ?? `${item.operation}-${item.createdAt}-${item.fileName}`} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
@@ -240,6 +365,14 @@ export function BackupPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={historyTotal}
+          page={historyPage}
+          limit={historyLimit}
+          onPageChange={setHistoryPage}
+          onLimitChange={updateHistoryLimit}
+          className="mt-4"
+        />
       </div>
     </div>
   );

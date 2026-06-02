@@ -52,7 +52,7 @@ export const entityConfig: Record<EntityName, EntityFilterConfig> = {
     dates: ["createdAt", "updateTime"],
     numbers: ["filesCount", "totalRows", "matchedStudents"],
     exact: ["status"],
-    objectIds: ["userId", "importBatchId"],
+    objectIds: ["_id", "userId", "importBatchId"],
     defaultSort: { createdAt: -1 },
   },
   students: {
@@ -90,7 +90,7 @@ export const entityConfig: Record<EntityName, EntityFilterConfig> = {
     dates: ["startedAt", "finishedAt", "createdAt", "updateTime", "filter.dateFrom", "filter.dateTo"],
     numbers: ["results.totalSessions", "results.clusterCount", "results.anomalyCount", "results.anomalyRate"],
     exact: ["status", "algorithm"],
-    objectIds: ["userId"],
+    objectIds: ["_id", "userId"],
     defaultSort: { startedAt: -1 },
   },
   audit_logs: {

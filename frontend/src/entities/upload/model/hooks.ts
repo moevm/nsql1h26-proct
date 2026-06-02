@@ -1,33 +1,51 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ListResponse } from "../../../shared/api/client";
 import type { AnyRecord } from "../../types";
 import { activeProcessingStatuses, mapUploadLogEntry, mapUploadsToBatches, mapUploadToBatch } from "./adapters";
 import type { ProcessingStatusResponse } from "./types";
 
-export function useUploads(limit = 50) {
+type PaginationOptions = number | { page?: number; limit?: number };
+
+function paginationOptions(options: PaginationOptions = 50) {
+  if (typeof options === "number") return { page: 1, limit: options };
+  return { page: options.page ?? 1, limit: options.limit ?? 50 };
+}
+
+export function useUploads(options: PaginationOptions = 50) {
+  const { page, limit } = paginationOptions(options);
   const [items, setItems] = useState<AnyRecord[]>([]);
+  const [meta, setMeta] = useState({ total: 0, page, limit });
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setLoading(true);
-    void api<ListResponse<AnyRecord>>(`/uploads?limit=${limit}`)
-      .then((data) => setItems(data.items))
-      .catch(() => setItems([]))
+    void api<ListResponse<AnyRecord>>(`/uploads?page=${page}&limit=${limit}`)
+      .then((data) => {
+        setItems(data.items);
+        setMeta({ total: data.total, page: data.page, limit: data.limit });
+      })
+      .catch(() => {
+        setItems([]);
+        setMeta({ total: 0, page, limit });
+      })
       .finally(() => setLoading(false));
-  }, [limit, reloadKey]);
+  }, [limit, page, reloadKey]);
 
   return {
     items,
     batches: useMemo(() => items.map(mapUploadToBatch), [items]),
     groupedBatches: useMemo(() => mapUploadsToBatches(items), [items]),
+    total: meta.total,
+    page: meta.page,
+    limit: meta.limit,
     loading,
     refetch: () => setReloadKey((key) => key + 1),
   };
 }
 
 export function useLatestUpload() {
-  const { items, batches, loading } = useUploads(1);
+  const { items, batches, loading } = useUploads({ limit: 1 });
   return { upload: items[0], batch: batches[0], loading };
 }
 
@@ -66,28 +84,35 @@ export function useProcessingStatus(uploadId: string | undefined) {
   const [loading, setLoading] = useState(Boolean(uploadId));
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const inFlightRef = useRef(false);
+  const loadedUploadIdRef = useRef<string | undefined>(undefined);
 
   const fetchStatus = useCallback(async () => {
     if (!uploadId) {
       setData(null);
       setLoading(false);
+      loadedUploadIdRef.current = undefined;
       return null;
     }
 
-    if (!data) setLoading(true);
+    if (inFlightRef.current) return null;
+    inFlightRef.current = true;
+    if (loadedUploadIdRef.current !== uploadId) setLoading(true);
     setError("");
     try {
       const response = await api<ProcessingStatusResponse>(`/process/${uploadId}`);
       setData(response);
+      loadedUploadIdRef.current = uploadId;
       return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось загрузить состояние обработки");
       setData(null);
       return null;
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
-  }, [data, uploadId]);
+  }, [uploadId]);
 
   useEffect(() => {
     void fetchStatus();
@@ -98,7 +123,7 @@ export function useProcessingStatus(uploadId: string | undefined) {
     if (!uploadId || !status || !activeProcessingStatuses.has(status)) return undefined;
     const timer = window.setInterval(() => {
       void fetchStatus();
-    }, 1500);
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [fetchStatus, status, uploadId]);
 

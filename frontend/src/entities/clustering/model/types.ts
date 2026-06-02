@@ -16,6 +16,7 @@ export type ClusterRunHistoryRow = {
 export type ResultSessionRow = {
   id: string;
   student: string;
+  dateRaw?: string;
   date: string;
   cluster: string;
   anomaly: boolean;

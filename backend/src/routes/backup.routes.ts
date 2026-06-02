@@ -47,6 +47,11 @@ function sendBackupDownload(res: Response, fileName: string, buffer: Buffer, con
   res.send(buffer);
 }
 
+function numericQuery(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 backupRouter.get(
   "/backup/export",
   auth,
@@ -62,8 +67,21 @@ backupRouter.get(
   auth,
   adminOnly,
   asyncHandler(async (req, res) => {
-    const limit = Number(req.query.limit ?? 50);
-    res.json({ items: await getBackupHistory(limit) });
+    const page = numericQuery(req.query.page) ?? 1;
+    const limit = numericQuery(req.query.limit) ?? 50;
+    res.json(
+      await getBackupHistory(page, limit, {
+        fileName: String(req.query.fileName ?? ""),
+        createdAtFrom: String(req.query.createdAtFrom ?? ""),
+        createdAtTo: String(req.query.createdAtTo ?? ""),
+        sizeMin: numericQuery(req.query.sizeMin),
+        sizeMax: numericQuery(req.query.sizeMax),
+        actorName: String(req.query.actorName ?? ""),
+        operation: String(req.query.operation ?? ""),
+        status: String(req.query.status ?? ""),
+        details: String(req.query.details ?? ""),
+      }),
+    );
   }),
 );
 

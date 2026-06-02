@@ -15,10 +15,12 @@ import { Button, TextInput, Select, Label } from "@gravity-ui/uikit";
 import { api, ApiError } from "../shared/api/client";
 import type { AnyRecord } from "../entities/types";
 import { RecordDetailsView } from "../shared/ui/RecordDetailsView";
-import { FilterDateTimeRange, FilterFormField } from "../shared/ui/FilterField";
+import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { formatDate, formatDurationMs } from "../shared/lib/format";
 import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { readStoredPageSize, writeStoredPageSize } from "../shared/lib/paginationStorage";
+import { TablePagination } from "../shared/ui/TablePagination";
 import { useRetryProcessing, useStartProcessing, useStopProcessing } from "../entities/upload/model/hooks";
 import { isActiveProcessingStatus, isRetryableProcessingStatus } from "../entities/upload/model/adapters";
 
@@ -60,6 +62,12 @@ const entityLabels: Record<LogEntry["entityType"], string> = {
 type TabType = "log" | "problems" | "unmapped";
 const finalUploadStatuses = new Set(["done", "done_with_warnings", "failed", "success", "warning", "error"]);
 
+type PaginationState = {
+  page: number;
+  limit: number;
+  total: number;
+};
+
 function normalizeEntity(value: unknown): LogEntry["entityType"] {
   const raw = String(value ?? "");
   if (raw.includes("student")) return "student";
@@ -75,9 +83,19 @@ export function UploadLogPage() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [fileFilter, setFileFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [lineMin, setLineMin] = useState("");
+  const [lineMax, setLineMax] = useState("");
   const [timeFrom, setTimeFrom] = useState("");
   const [timeTo, setTimeTo] = useState("");
   const [search, setSearch] = useState("");
+  const [problemFileFilter, setProblemFileFilter] = useState("");
+  const [problemLineMin, setProblemLineMin] = useState("");
+  const [problemLineMax, setProblemLineMax] = useState("");
+  const [problemContentFilter, setProblemContentFilter] = useState("");
+  const [problemErrorFilter, setProblemErrorFilter] = useState("");
+  const [unmappedIdFilter, setUnmappedIdFilter] = useState("");
+  const [unmappedMatchFilter, setUnmappedMatchFilter] = useState("");
+  const [unmappedReasonFilter, setUnmappedReasonFilter] = useState("");
   const [upload, setUpload] = useState<AnyRecord | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [problemRows, setProblemRows] = useState<ProblemRow[]>([]);
@@ -88,12 +106,36 @@ export function UploadLogPage() {
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [paginationByTab, setPaginationByTab] = useState<Record<TabType, PaginationState>>(() => {
+    const limit = readStoredPageSize("table-page-size", 10);
+    return {
+      log: { page: 1, limit, total: 0 },
+      problems: { page: 1, limit, total: 0 },
+      unmapped: { page: 1, limit, total: 0 },
+    };
+  });
   const startProcessing = useStartProcessing();
   const stopProcessing = useStopProcessing();
   const retryProcessing = useRetryProcessing();
   const timeFromValid = isValidIsoDateTime(timeFrom);
   const timeToValid = isValidIsoDateTime(timeTo);
   const timeFiltersValid = timeFromValid && timeToValid;
+  const activePagination = paginationByTab[activeTab];
+
+  const updatePagination = useCallback((tab: TabType, patch: Partial<PaginationState>) => {
+    setPaginationByTab((current) => ({ ...current, [tab]: { ...current[tab], ...patch } }));
+  }, []);
+
+  const resetActivePage = () => updatePagination(activeTab, { page: 1 });
+  const updateActivePage = (page: number) => updatePagination(activeTab, { page });
+  const updateActiveLimit = (limit: number) => {
+    writeStoredPageSize("table-page-size", limit);
+    setPaginationByTab((current) => ({
+      log: { ...current.log, page: 1, limit },
+      problems: { ...current.problems, page: 1, limit },
+      unmapped: { ...current.unmapped, page: 1, limit },
+    }));
+  };
 
   const loadLog = useCallback(async () => {
     if (!currentId) return;
@@ -106,45 +148,70 @@ export function UploadLogPage() {
     setLoadError("");
     try {
       const params = new URLSearchParams();
+      params.set("table", activeTab);
+      params.set("page", String(activePagination.page));
+      params.set("limit", String(activePagination.limit));
       if (levelFilter !== "all") params.set("level", levelFilter);
+      if (fileFilter !== "all") params.set("file", fileFilter);
+      if (entityFilter !== "all") params.set("entityType", entityFilter);
+      if (lineMin) params.set("lineFrom", lineMin);
+      if (lineMax) params.set("lineTo", lineMax);
       if (timeFrom) params.set("timeFrom", timeFrom);
       if (timeTo) params.set("timeTo", timeTo);
+      if (search) params.set("search", search);
+      if (problemFileFilter) params.set("problemFile", problemFileFilter);
+      if (problemLineMin) params.set("problemLineFrom", problemLineMin);
+      if (problemLineMax) params.set("problemLineTo", problemLineMax);
+      if (problemContentFilter) params.set("problemContent", problemContentFilter);
+      if (problemErrorFilter) params.set("problemError", problemErrorFilter);
+      if (unmappedIdFilter) params.set("unmappedId", unmappedIdFilter);
+      if (unmappedMatchFilter) params.set("unmappedMatch", unmappedMatchFilter);
+      if (unmappedReasonFilter) params.set("unmappedReason", unmappedReasonFilter);
       const query = params.toString();
-      const data = await api<{ upload: AnyRecord; processingLog: AnyRecord[]; unresolvedStudents: AnyRecord[] }>(
+      const data = await api<{ upload: AnyRecord; processingLog: AnyRecord[]; unresolvedStudents: AnyRecord[]; pagination?: PaginationState }>(
         `/uploads/${currentId}/log${query ? `?${query}` : ""}`,
       );
       setUpload(data.upload);
-      setLogEntries(
-        data.processingLog.map((entry, index) => {
-          const timestamp = entry.timestamp ? String(entry.timestamp) : "";
-          return {
-            id: index + 1,
-            time: timestamp ? new Date(timestamp).toLocaleTimeString("ru-RU") : "—",
-            level: String(entry.level ?? "info") as LogEntry["level"],
-            file: String(entry.sourceFileKey ?? "csv"),
-            line: Number(entry.line ?? 0),
-            entityType: normalizeEntity(entry.entityType),
-            message: String(entry.message ?? ""),
-          };
-        }),
-      );
-      setProblemRows(
-        data.processingLog
-          .filter((entry) => String(entry.level) !== "info")
-          .map((entry) => ({
+      if (activeTab === "log") {
+        setLogEntries(
+          data.processingLog.map((entry, index) => {
+            const timestamp = entry.timestamp ? String(entry.timestamp) : "";
+            return {
+              id: (activePagination.page - 1) * activePagination.limit + index + 1,
+              time: timestamp ? new Date(timestamp).toLocaleTimeString("ru-RU") : "—",
+              level: String(entry.level ?? "info") as LogEntry["level"],
+              file: String(entry.sourceFileKey ?? "csv"),
+              line: Number(entry.line ?? 0),
+              entityType: normalizeEntity(entry.entityType),
+              message: String(entry.message ?? ""),
+            };
+          }),
+        );
+      }
+      if (activeTab === "problems") {
+        setProblemRows(
+          data.processingLog.map((entry) => ({
             file: String(entry.sourceFileKey ?? "csv"),
             line: Number(entry.line ?? 0),
             content: String(entry.rowContent ?? "—"),
             error: String(entry.message ?? "—"),
           })),
-      );
-      setUnmappedStudents(
-        data.unresolvedStudents.map((student) => ({
-          id: String(student.externalId ?? student.id ?? ""),
-          possibleMatch: String(student.possibleMatch ?? "—"),
-          reason: String(student.reason ?? "Не сопоставлен"),
-        })),
-      );
+        );
+      }
+      if (activeTab === "unmapped") {
+        setUnmappedStudents(
+          data.unresolvedStudents.map((student) => ({
+            id: String(student.externalId ?? student.id ?? ""),
+            possibleMatch: String(student.possibleMatch ?? "—"),
+            reason: String(student.reason ?? "Не сопоставлен"),
+          })),
+        );
+      }
+      updatePagination(activeTab, {
+        page: data.pagination?.page ?? activePagination.page,
+        limit: data.pagination?.limit ?? activePagination.limit,
+        total: data.pagination?.total ?? 0,
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setNotFound(true);
@@ -154,7 +221,30 @@ export function UploadLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentId, levelFilter, timeFrom, timeFiltersValid, timeTo]);
+  }, [
+    activePagination.limit,
+    activePagination.page,
+    activeTab,
+    currentId,
+    entityFilter,
+    fileFilter,
+    levelFilter,
+    lineMax,
+    lineMin,
+    problemContentFilter,
+    problemErrorFilter,
+    problemFileFilter,
+    problemLineMax,
+    problemLineMin,
+    search,
+    timeFrom,
+    timeFiltersValid,
+    timeTo,
+    unmappedIdFilter,
+    unmappedMatchFilter,
+    unmappedReasonFilter,
+    updatePagination,
+  ]);
 
   useEffect(() => {
     void loadLog();
@@ -166,6 +256,8 @@ export function UploadLogPage() {
     levelFilter !== "all" ||
     fileFilter !== "all" ||
     entityFilter !== "all" ||
+    lineMin ||
+    lineMax ||
     timeFrom ||
     timeTo ||
     search;
@@ -174,22 +266,18 @@ export function UploadLogPage() {
     setLevelFilter("all");
     setFileFilter("all");
     setEntityFilter("all");
+    setLineMin("");
+    setLineMax("");
     setTimeFrom("");
     setTimeTo("");
     setSearch("");
+    resetActivePage();
   };
 
-  const filteredLog = logEntries.filter((e) => {
-    if (fileFilter !== "all" && e.file !== fileFilter) return false;
-    if (entityFilter !== "all" && e.entityType !== entityFilter) return false;
-    if (search && !e.message.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
-
   const tabs: { id: TabType; label: string; count?: number }[] = [
-    { id: "log", label: "Журнал", count: logEntries.length },
-    { id: "problems", label: "Проблемные строки", count: problemRows.length },
-    { id: "unmapped", label: "Несопоставленные студенты", count: unmappedStudents.length },
+    { id: "log", label: "Журнал", count: paginationByTab.log.total || logEntries.length },
+    { id: "problems", label: "Проблемные строки", count: paginationByTab.problems.total || problemRows.length },
+    { id: "unmapped", label: "Несопоставленные студенты", count: paginationByTab.unmapped.total || unmappedStudents.length },
   ];
 
   const duration = formatDurationMs(upload?.processingDurationMs);
@@ -353,20 +441,21 @@ export function UploadLogPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                 <FilterFormField label="Поиск">
-                  <TextInput placeholder="Текст в сообщениях" size="l" value={search} onUpdate={setSearch} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
+                  <TextInput placeholder="Текст в сообщениях" size="l" value={search} onUpdate={(value) => { setSearch(value); resetActivePage(); }} startContent={<Search className="w-3.5 h-3.5 text-muted-foreground" />} />
                 </FilterFormField>
                 <FilterFormField label="Уровень">
-                  <Select value={[levelFilter]} onUpdate={(v) => setLevelFilter(v[0])} options={[{ value: "all", content: "Все уровни" }, { value: "info", content: "info" }, { value: "warn", content: "warn" }, { value: "error", content: "error" }]} size="l" width="max" />
+                  <Select value={[levelFilter]} onUpdate={(v) => { setLevelFilter(v[0]); resetActivePage(); }} options={[{ value: "all", content: "Все уровни" }, { value: "info", content: "info" }, { value: "warn", content: "warn" }, { value: "error", content: "error" }]} size="l" width="max" />
                 </FilterFormField>
                 <FilterFormField label="Файл">
-                  <Select value={[fileFilter]} onUpdate={(v) => setFileFilter(v[0])} options={[{ value: "all", content: "Все файлы" }, ...files.map((f) => ({ value: f, content: f }))]} size="l" width="max" />
+                  <Select value={[fileFilter]} onUpdate={(v) => { setFileFilter(v[0]); resetActivePage(); }} options={[{ value: "all", content: "Все файлы" }, ...files.map((f) => ({ value: f, content: f }))]} size="l" width="max" />
                 </FilterFormField>
                 <FilterFormField label="Сущность">
-                  <Select value={[entityFilter]} onUpdate={(v) => setEntityFilter(v[0])} options={[{ value: "all", content: "Все сущности" }, { value: "student", content: "Студент" }, { value: "moodle", content: "Строка Moodle" }, { value: "camera", content: "Запись камеры" }]} size="l" width="max" />
+                  <Select value={[entityFilter]} onUpdate={(v) => { setEntityFilter(v[0]); resetActivePage(); }} options={[{ value: "all", content: "Все сущности" }, { value: "student", content: "Студент" }, { value: "moodle", content: "Строка Moodle" }, { value: "camera", content: "Запись камеры" }]} size="l" width="max" />
                 </FilterFormField>
+                <FilterNumberRange label="Строка" from={lineMin} to={lineMax} onFromChange={(value) => { setLineMin(value); resetActivePage(); }} onToChange={(value) => { setLineMax(value); resetActivePage(); }} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FilterDateTimeRange label="Время записи" from={timeFrom} to={timeTo} onFromChange={setTimeFrom} onToChange={setTimeTo} />
+                <FilterDateTimeRange label="Время записи" from={timeFrom} to={timeTo} onFromChange={(value) => { setTimeFrom(value); resetActivePage(); }} onToChange={(value) => { setTimeTo(value); resetActivePage(); }} />
               </div>
             </div>
             {!timeFiltersValid && (
@@ -390,12 +479,12 @@ export function UploadLogPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLog.length === 0 ? (
+                  {logEntries.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-10 text-center text-muted-foreground">Записей по заданным условиям не найдено</td>
                     </tr>
                   ) : (
-                    filteredLog.map((e) => (
+                    logEntries.map((e) => (
                       <tr key={e.id} className={`border-b border-border/50 last:border-0 ${e.level === "error" ? "bg-destructive/3" : e.level === "warn" ? "bg-warning/3" : ""}`}>
                         <td className="py-2.5 pr-4 font-mono text-muted-foreground">{e.time}</td>
                         <td className="py-2.5 pr-4"><Label theme={levelConfig[e.level].theme} icon={levelConfig[e.level].icon}>{levelConfig[e.level].label}</Label></td>
@@ -409,14 +498,29 @@ export function UploadLogPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination total={activePagination.total} page={activePagination.page} limit={activePagination.limit} onPageChange={updateActivePage} onLimitChange={updateActiveLimit} className="mt-4" />
           </div>
         </>
       )}
 
       {activeTab === "problems" && (
         <div className="bg-card rounded-xl border border-border p-5">
-          {problemRows.length === 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+            <FilterFormField label="Файл">
+              <TextInput placeholder="Имя файла" size="l" value={problemFileFilter} onUpdate={(value) => { setProblemFileFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+            <FilterNumberRange label="Строка" from={problemLineMin} to={problemLineMax} onFromChange={(value) => { setProblemLineMin(value); resetActivePage(); }} onToChange={(value) => { setProblemLineMax(value); resetActivePage(); }} />
+            <FilterFormField label="Содержимое">
+              <TextInput placeholder="Фрагмент строки" size="l" value={problemContentFilter} onUpdate={(value) => { setProblemContentFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+            <FilterFormField label="Описание ошибки">
+              <TextInput placeholder="Текст ошибки" size="l" value={problemErrorFilter} onUpdate={(value) => { setProblemErrorFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+          </div>
+          {problemRows.length === 0 && activePagination.total === 0 ? (
             <p className="text-center text-muted-foreground py-10 text-[13px]">Проблемных строк не обнаружено</p>
+          ) : problemRows.length === 0 ? (
+            <p className="text-center text-muted-foreground py-10 text-[13px]">Проблемных строк по заданным условиям не найдено</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
@@ -441,6 +545,9 @@ export function UploadLogPage() {
               </table>
             </div>
           )}
+          {activePagination.total > 0 && (
+            <TablePagination total={activePagination.total} page={activePagination.page} limit={activePagination.limit} onPageChange={updateActivePage} onLimitChange={updateActiveLimit} className="mt-4" />
+          )}
         </div>
       )}
 
@@ -450,8 +557,21 @@ export function UploadLogPage() {
             <UserX className="w-4 h-4 text-warning" />
             <span className="text-[14px]" style={{ fontWeight: 600 }}>Несопоставленные студенты ({unmappedStudents.length})</span>
           </div>
-          {unmappedStudents.length === 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <FilterFormField label="ID из файла">
+              <TextInput placeholder="ID студента" size="l" value={unmappedIdFilter} onUpdate={(value) => { setUnmappedIdFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+            <FilterFormField label="Возможное совпадение">
+              <TextInput placeholder="Фрагмент совпадения" size="l" value={unmappedMatchFilter} onUpdate={(value) => { setUnmappedMatchFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+            <FilterFormField label="Причина">
+              <TextInput placeholder="Причина несопоставления" size="l" value={unmappedReasonFilter} onUpdate={(value) => { setUnmappedReasonFilter(value); resetActivePage(); }} />
+            </FilterFormField>
+          </div>
+          {unmappedStudents.length === 0 && activePagination.total === 0 ? (
             <p className="text-center text-muted-foreground py-10 text-[13px]">Все студенты успешно сопоставлены</p>
+          ) : unmappedStudents.length === 0 ? (
+            <p className="text-center text-muted-foreground py-10 text-[13px]">Несопоставленных студентов по заданным условиям не найдено</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
@@ -473,6 +593,9 @@ export function UploadLogPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          {activePagination.total > 0 && (
+            <TablePagination total={activePagination.total} page={activePagination.page} limit={activePagination.limit} onPageChange={updateActivePage} onLimitChange={updateActiveLimit} className="mt-4" />
           )}
         </div>
       )}

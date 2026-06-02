@@ -19,14 +19,18 @@ import { useRetryProcessing, useStopProcessing, useUploads } from "../entities/u
 import { getUploadStatusLabel } from "../shared/config/ui";
 import { api } from "../shared/api/client";
 import { dateFilterValue, matchesDateRange, matchesNumberRange, matchesText } from "../shared/lib/clientFilters";
+import { readStoredPageSize, writeStoredPageSize } from "../shared/lib/paginationStorage";
 import { FilterDateTimeRange, FilterFormField, FilterNumberRange } from "../shared/ui/FilterField";
+import { TablePagination } from "../shared/ui/TablePagination";
 
 type SortField = "id" | "date" | "author" | "status";
 type SortDir = "asc" | "desc";
 
 export function UploadHistoryPage() {
   const navigate = useNavigate();
-  const { groupedBatches: batches, refetch } = useUploads(200);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(() => readStoredPageSize("table-page-size", 10));
+  const { groupedBatches: batches, total, refetch } = useUploads({ page, limit });
   const stopProcessing = useStopProcessing();
   const retryProcessing = useRetryProcessing();
   const [idFilter, setIdFilter] = useState("");
@@ -81,7 +85,6 @@ export function UploadHistoryPage() {
       else if (sortField === "status") cmp = a.status.localeCompare(b.status);
       return sortDir === "asc" ? cmp : -cmp;
     });
-
   const hasFilters =
     idFilter ||
     dateFrom ||
@@ -109,6 +112,12 @@ export function UploadHistoryPage() {
     setRowsMax("");
     setStudentsMin("");
     setStudentsMax("");
+    setPage(1);
+  };
+  const updateLimit = (nextLimit: number) => {
+    writeStoredPageSize("table-page-size", nextLimit);
+    setLimit(nextLimit);
+    setPage(1);
   };
 
   const deleteBatch = async (id: string) => {
@@ -380,6 +389,14 @@ export function UploadHistoryPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={hasFilters ? filtered.length : total}
+          page={hasFilters ? 1 : page}
+          limit={limit}
+          onPageChange={setPage}
+          onLimitChange={updateLimit}
+          className="mt-4"
+        />
       </div>
     </div>
   );
