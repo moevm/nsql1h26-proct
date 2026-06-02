@@ -21,7 +21,7 @@ export function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      await login(email, password);
+      await login(email, password, remember);
       navigate("/results");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка авторизации");
@@ -102,6 +102,7 @@ export function LoginPage() {
                   value={email}
                   onUpdate={setEmail}
                   size="m"
+                  controlProps={{ required: true, autoComplete: "email" }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -112,11 +113,13 @@ export function LoginPage() {
                   value={password}
                   onUpdate={setPassword}
                   size="m"
+                  controlProps={{ required: true, autoComplete: "current-password" }}
                   endContent={
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="flex items-center px-1"
+                      aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                     >
                       {showPassword ? (
                         <EyeOff className="w-4 h-4 text-muted-foreground" />
@@ -134,9 +137,18 @@ export function LoginPage() {
                   onUpdate={setRemember}
                   content="Запомнить меня"
                 />
-                <button type="button" className="text-[13px] text-primary hover:underline">
-                  Забыли пароль?
-                </button>
+                <div className="text-right">
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    className="text-[13px] text-muted-foreground cursor-not-allowed"
+                    title="Восстановление пароля недоступно в прототипе"
+                  >
+                    Забыли пароль?
+                  </button>
+                  <div className="text-[11px] text-muted-foreground">Недоступно в прототипе</div>
+                </div>
               </div>
 
               {error && <div className="text-[13px] text-destructive">{error}</div>}

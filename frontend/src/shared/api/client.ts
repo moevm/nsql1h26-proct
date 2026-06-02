@@ -6,6 +6,7 @@ export type ListResponse<T> = {
 };
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:18080/api";
+const TOKEN_KEY = "token";
 
 export class ApiError extends Error {
   status: number;
@@ -17,12 +18,17 @@ export class ApiError extends Error {
 }
 
 export function getToken() {
-  return localStorage.getItem("token");
+  return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string | null) {
-  if (token) localStorage.setItem("token", token);
-  else localStorage.removeItem("token");
+export function setToken(token: string | null, remember = false) {
+  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+
+  if (!token) return;
+
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem(TOKEN_KEY, token);
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
