@@ -10,16 +10,28 @@ function uploadFileTypes(row: AnyRecord) {
 }
 
 function uploadStatus(row: AnyRecord): UploadBatch["status"] {
+  const processingState = (row.processingState ?? {}) as AnyRecord;
+  const processingStatus = String(processingState.status ?? "");
+  if (["queued", "processing", "cancelling", "cancelled", "failed", "stale"].includes(processingStatus)) {
+    return processingStatus as UploadBatch["status"];
+  }
   const status = String(row.status ?? "success");
   const summary = (row.summary ?? {}) as AnyRecord;
   const errorCount = Number(row.errorCount ?? summary.errorCount ?? 0);
-  if (status === "failed" || status === "error") return "error";
+  if (status === "failed" || status === "error" || status === "stale") return "error";
+  if (status === "pending") return "pending";
+  if (status === "processing") return "processing";
+  if (status === "cancelled") return "cancelled";
   if (status.includes("warning") || errorCount > 0) return "warning";
   return "success";
 }
 
 function statusPriority(status: UploadBatch["status"]) {
-  return status === "error" ? 2 : status === "warning" ? 1 : 0;
+  if (status === "error" || status === "failed" || status === "stale") return 4;
+  if (status === "processing" || status === "queued" || status === "cancelling") return 3;
+  if (status === "warning" || status === "done_with_warnings" || status === "cancelled") return 2;
+  if (status === "pending" || status === "idle") return 1;
+  return 0;
 }
 
 export function mapUploadToBatch(row: AnyRecord): UploadBatch {
@@ -73,7 +85,7 @@ export function mapUploadsToBatches(rows: AnyRecord[]): UploadBatch[] {
       author: current?.author ?? String(row.createdByName ?? row.createdBy ?? "Система"),
       files: (current?.files ?? 0) + Number((row.filesCount ?? fileTypes.length) || 1),
       fileTypes: new Set([...(current?.fileTypes ?? []), ...fileTypes]),
-      status: current?.status === "error" || status === "error" ? "error" : current?.status === "warning" || status === "warning" ? "warning" : "success",
+      status: !current || statusPriority(status) > statusPriority(current.status) ? status : current.status,
       rows: (current?.rows ?? 0) + Number(row.totalRows ?? summary.totalRows ?? summary.rows ?? 0),
       students: (current?.students ?? 0) + Number(row.matchedStudents ?? summary.students ?? summary.studentCount ?? 0),
     });

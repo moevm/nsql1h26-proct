@@ -42,7 +42,11 @@ export async function getUploadLog(
 
   const objectId = new ObjectId(uploadId);
   const directUpload = await getCollection("uploads").findOne({ _id: objectId });
-  const uploads = directUpload ? [directUpload] : await getCollection("uploads").find({ importBatchId: objectId }).sort({ createdAt: 1 }).toArray();
+  const uploads = directUpload?.importBatchId
+    ? await getCollection("uploads").find({ importBatchId: directUpload.importBatchId }).sort({ createdAt: 1 }).toArray()
+    : directUpload
+      ? [directUpload]
+      : await getCollection("uploads").find({ importBatchId: objectId }).sort({ createdAt: 1 }).toArray();
   if (!uploads.length) return null;
 
   const lineFrom = filters.lineFrom ?? Number.NEGATIVE_INFINITY;
@@ -83,6 +87,7 @@ export async function getUploadLog(
       totalRows: batchMetrics.totalRows,
       matchedStudents: batchMetrics.matchedStudents,
       files: Object.assign({}, ...uploads.map((item) => item.files ?? {})),
+      processingState: uploads[0]?.processingState,
       processingStartedAt: uploads[0]?.processingStartedAt ?? uploads[0]?.createdAt,
       processingFinishedAt: uploads.at(-1)?.processingFinishedAt ?? uploads.at(-1)?.updateTime,
     } as Document);

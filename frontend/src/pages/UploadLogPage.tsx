@@ -19,6 +19,7 @@ import { DateTimeIsoInput } from "../shared/ui/DateTimeIsoInput";
 import { uploadStatusLabels } from "../shared/config/ui";
 import { formatDate, formatDurationMs } from "../shared/lib/format";
 import { isValidIsoDateTime } from "../shared/lib/dateTime";
+import { useRetryProcessing, useStartProcessing, useStopProcessing } from "../entities/upload/model/hooks";
 
 interface LogEntry {
   id: number;
@@ -89,7 +90,11 @@ export function UploadLogPage() {
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [processError, setProcessError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const startProcessing = useStartProcessing();
+  const stopProcessing = useStopProcessing();
+  const retryProcessing = useRetryProcessing();
   const timeFromValid = isValidIsoDateTime(timeFrom);
   const timeToValid = isValidIsoDateTime(timeTo);
   const timeFiltersValid = timeFromValid && timeToValid;
@@ -197,14 +202,35 @@ export function UploadLogPage() {
 
   const duration = formatDurationMs(upload?.processingDurationMs);
   const uploadStatus = String(upload?.status ?? "");
-  const canProcessUpload = Boolean(currentId && upload && !finalUploadStatuses.has(uploadStatus));
+  const processingState = upload?.processingState as { status?: string } | undefined;
+  const lifecycleStatus = String(processingState?.status ?? (finalUploadStatuses.has(uploadStatus) ? "idle" : uploadStatus));
+  const canStopUpload = Boolean(currentId && upload && (lifecycleStatus === "queued" || lifecycleStatus === "processing"));
+  const canRetryUpload = Boolean(currentId && upload && (["cancelled", "failed", "stale", "done", "done_with_warnings"].includes(lifecycleStatus) || (lifecycleStatus === "idle" && ["done", "done_with_warnings", "failed"].includes(uploadStatus))));
+  const canStartUpload = Boolean(currentId && upload && lifecycleStatus === "idle" && !canRetryUpload);
+  const canProcessUpload = canStartUpload || canStopUpload || canRetryUpload || lifecycleStatus === "cancelling";
+  const processButtonLabel =
+    lifecycleStatus === "cancelling" ? "Останавливаем обработку..." :
+      canStopUpload ? "Остановить обработку" :
+        canRetryUpload ? "Перезапустить обработку" :
+          "Запустить обработку";
+  const processButtonLoading = processing || startProcessing.loading || stopProcessing.loading || retryProcessing.loading || lifecycleStatus === "cancelling";
 
   async function handleProcess() {
     if (!canProcessUpload) return;
     setProcessing(true);
+    setProcessError("");
     try {
-      await api(`/process/${currentId}`, { method: "POST", body: "{}" });
+      if (canStopUpload) {
+        if (!window.confirm("Остановить обработку? Уже загруженные исходные файлы сохранятся, обработку можно будет перезапустить.")) return;
+        await stopProcessing.run(currentId);
+      } else if (canRetryUpload) {
+        await retryProcessing.run(currentId);
+      } else if (canStartUpload) {
+        await startProcessing.run(currentId);
+      }
       setReloadKey((key) => key + 1);
+    } catch (error) {
+      setProcessError(error instanceof Error ? error.message : "Не удалось выполнить действие обработки");
     } finally {
       setProcessing(false);
     }
@@ -275,10 +301,20 @@ export function UploadLogPage() {
               Загрузка от {formatDate(upload?.createdAt)} · {String(upload?.createdByName ?? upload?.createdBy ?? "Система")} · Статус: {uploadStatusLabel(String(upload?.status ?? "—"))} · Длительность: {duration}
             </p>
           </div>
-          <Button view="action" className="text-[13px] h-9" loading={processing} disabled={!canProcessUpload} onClick={() => void handleProcess()}>
-            Запустить обработку
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button view="outlined" className="text-[13px] h-9" onClick={() => navigate(`/processing?uploadId=${currentId}`)}>
+              Открыть экран обработки
+            </Button>
+            <Button view="action" className="text-[13px] h-9" loading={processButtonLoading} disabled={!canProcessUpload || lifecycleStatus === "cancelling"} onClick={() => void handleProcess()}>
+              {processButtonLabel}
+            </Button>
+          </div>
         </div>
+        {processError && (
+          <div className="mt-3 rounded-lg bg-destructive/5 border border-destructive/20 px-3 py-2 text-[13px] text-destructive">
+            {processError}
+          </div>
+        )}
       </div>
 
       <div className="flex bg-muted rounded-lg p-0.5 w-fit">

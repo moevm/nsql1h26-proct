@@ -25,6 +25,39 @@ export type UnresolvedStudent = {
   possibleMatch?: string;
 };
 
+export type ProcessingStatus =
+  | "idle"
+  | "queued"
+  | "processing"
+  | "cancelling"
+  | "cancelled"
+  | "done"
+  | "done_with_warnings"
+  | "failed"
+  | "stale";
+
+export type ProcessingStageState = {
+  key: string;
+  label: string;
+  status: "pending" | "running" | "done" | "error" | "cancelled";
+  startedAt?: Date;
+  finishedAt?: Date;
+  message?: string;
+};
+
+export type ProcessingState = {
+  status: ProcessingStatus;
+  currentStage?: string;
+  progress: number;
+  stages: ProcessingStageState[];
+  startedAt?: Date;
+  finishedAt?: Date;
+  errorMessage?: string;
+  cancelRequestedAt?: Date;
+  lastHeartbeatAt?: Date;
+  attempt: number;
+};
+
 export type UploadDocument = {
   _id?: ObjectId;
   importBatchId?: ObjectId;
@@ -48,4 +81,5 @@ export type UploadDocument = {
   unresolvedStudents?: UnresolvedStudent[];
   processingStartedAt?: Date;
   processingFinishedAt?: Date;
+  processingState?: ProcessingState;
 };
