@@ -45,11 +45,10 @@ authRouter.post(
       details: { email: result.user.email, role: result.user.role },
     });
 
-    if (remember) {
-      res.cookie("token", result.token, { ...AUTH_COOKIE_OPTIONS, maxAge: AUTH_COOKIE_MAX_AGE_MS });
-    } else {
-      res.clearCookie("token", AUTH_COOKIE_OPTIONS);
-    }
+    res.cookie("token", result.token, {
+      ...AUTH_COOKIE_OPTIONS,
+      ...(remember ? { maxAge: AUTH_COOKIE_MAX_AGE_MS } : {}),
+    });
     res.json(result);
   }),
 );
